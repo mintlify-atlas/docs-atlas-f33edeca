@@ -1,0 +1,161 @@
+---
+title: Basic usage
+description: Learn the fundamental patterns for transcribing audio files with Tafrigh
+---
+
+Tafrigh provides a simple yet powerful API for transcribing audio files. This guide covers the essential usage patterns to get you started.
+
+## Quick start
+
+The most basic transcription requires just two steps: initialize the library with your Wit.ai API key, then transcribe your audio file.
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+const transcript = await transcribe('https://your-domain.com/path/to/media.mp3');
+console.log(transcript);
+```
+
+The `transcribe` function returns an array of transcript segments with timestamps:
+
+```json
+[
+  { "text": "Hello world", "start": 0, "end": 2.5 },
+  { "text": "This is a test", "start": 2.7, "end": 4.2 },
+  { "text": "With timestamps", "start": 4.5, "end": 6.0 }
+]
+```
+
+## Understanding the output
+
+Each segment in the transcript contains structured timing and confidence information:
+
+```typescript
+type Segment = {
+    text: string;         // The transcribed text
+    start: number;        // Start time in seconds
+    end: number;          // End time in seconds
+    confidence?: number;  // Confidence score (0-1)
+    tokens?: Token[];     // Word-by-word breakdown
+};
+```
+
+### Token-level details
+
+When available, each segment includes token-level information for individual words:
+
+```json
+{
+  "text": "Hello world",
+  "start": 0,
+  "end": 2.5,
+  "confidence": 0.95,
+  "tokens": [
+    { "text": "Hello", "start": 0, "end": 1.2, "confidence": 0.98 },
+    { "text": "world", "start": 1.3, "end": 2.5, "confidence": 0.92 }
+  ]
+}
+```
+
+## Supported input formats
+
+Tafrigh accepts multiple input types for maximum flexibility.
+
+### Local file paths
+
+```javascript
+const transcript = await transcribe('./audio/recording.mp3');
+```
+
+### Remote URLs
+
+```javascript
+const transcript = await transcribe('https://example.com/audio.mp3');
+```
+
+### Readable streams
+
+You can transcribe streams directly, which is useful for integrating with libraries like `ytdl-core`:
+
+```javascript
+import { createReadStream } from 'node:fs';
+
+const stream = createReadStream('./audio/recording.wav');
+const transcript = await transcribe(stream);
+```
+
+## Media format support
+
+Tafrigh supports any audio or video format that ffmpeg can process, including:
+
+- Audio: MP3, WAV, FLAC, AAC, OGG, M4A
+- Video: MP4, AVI, MKV, MOV, WMV
+
+When you provide a video file, Tafrigh automatically extracts and transcribes the audio track.
+
+## Language considerations
+
+<Warning>
+The transcription language is determined by your Wit.ai API key configuration. If your key is configured for English and you provide Arabic audio, the transcription will be inaccurate.
+</Warning>
+
+Each Wit.ai API key is associated with a specific language. Make sure to:
+
+1. Create separate Wit.ai apps for each language you need to support
+2. Initialize Tafrigh with API keys that match your audio content's language
+3. Use different API key sets when processing multi-language content
+
+## Setting API keys from environment variables
+
+For production deployments, you can configure API keys using environment variables instead of hardcoding them:
+
+```bash
+export WIT_AI_API_KEYS="key1 key2 key3"
+```
+
+Then in your code:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+// The library will use keys from WIT_AI_API_KEYS if available
+init({ apiKeys: process.env.WIT_AI_API_KEYS?.split(' ') || [] });
+```
+
+## Error handling
+
+Always wrap transcription calls in try-catch blocks to handle potential errors:
+
+```javascript
+import { init, transcribe, TranscriptionError } from 'tafrigh';
+
+try {
+  const transcript = await transcribe('audio.mp3');
+  console.log('Transcription successful:', transcript);
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.error('Transcription failed:', error.message);
+    console.log('Partial results:', error.transcripts);
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Advanced configuration" icon="sliders" href="/guides/advanced-configuration">
+    Learn about chunk duration, silence detection, and preprocessing options
+  </Card>
+  <Card title="Managing concurrency" icon="gauge-high" href="/guides/concurrency">
+    Optimize transcription speed with parallel processing
+  </Card>
+  <Card title="Resuming failed transcriptions" icon="rotate-right" href="/guides/resuming-failed-transcriptions">
+    Handle and recover from partial transcription failures
+  </Card>
+  <Card title="Noise reduction" icon="volume-slash" href="/guides/noise-reduction">
+    Improve accuracy with audio preprocessing
+  </Card>
+</CardGroup>

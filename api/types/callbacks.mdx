@@ -1,0 +1,262 @@
+---
+title: 'Callbacks'
+description: 'Interface for monitoring and responding to transcription events'
+---
+
+## Overview
+
+The `Callbacks` interface allows you to monitor and respond to various stages of the transcription process. It extends preprocessing and splitting callbacks from ffmpeg-simplified, providing a complete view of the entire audio processing pipeline.
+
+## Type definition
+
+```typescript
+interface Callbacks extends PreprocessingCallbacks, SplitOnSilenceCallbacks {
+    onTranscriptionFinished?: (transcripts: Segment[]) => Promise<void>;
+    onTranscriptionProgress?: (chunkIndex: number) => void;
+    onTranscriptionStarted?: (totalChunks: number) => Promise<void>;
+}
+```
+
+## Properties
+
+### Transcription callbacks
+
+<ResponseField name="onTranscriptionStarted" type="(totalChunks: number) => Promise<void>">
+  Called just before the transcription process begins.
+  
+  **Parameters:**
+  - `totalChunks`: Total number of chunks to be transcribed
+  
+  Use this to initialize progress tracking or logging.
+</ResponseField>
+
+<ResponseField name="onTranscriptionProgress" type="(chunkIndex: number) => void">
+  Called when each individual chunk is transcribed.
+  
+  **Parameters:**
+  - `chunkIndex`: Index of the current chunk being processed (0-based)
+  
+  Use this to update progress indicators or track completion status.
+</ResponseField>
+
+<ResponseField name="onTranscriptionFinished" type="(transcripts: Segment[]) => Promise<void>">
+  Called when all transcription is complete.
+  
+  **Parameters:**
+  - `transcripts`: Array of all transcribed segments
+  
+  <Note>
+    This callback is only called when ALL chunks transcribe successfully. If any chunk fails, this callback will not be invoked.
+  </Note>
+</ResponseField>
+
+### Inherited callbacks
+
+<Expandable title="PreprocessingCallbacks (from ffmpeg-simplified)">
+  
+  <ResponseField name="onPreprocessingStarted" type="() => Promise<void>">
+    Called when audio preprocessing begins.
+  </ResponseField>
+  
+  <ResponseField name="onPreprocessingProgress" type="(progress: number) => void">
+    Called during preprocessing with progress percentage (0-100).
+  </ResponseField>
+  
+  <ResponseField name="onPreprocessingFinished" type="() => Promise<void>">
+    Called when preprocessing completes.
+  </ResponseField>
+
+</Expandable>
+
+<Expandable title="SplitOnSilenceCallbacks (from ffmpeg-simplified)">
+  
+  <ResponseField name="onSplitStarted" type="() => Promise<void>">
+    Called when audio splitting begins.
+  </ResponseField>
+  
+  <ResponseField name="onSplitProgress" type="(progress: number) => void">
+    Called during splitting with progress percentage (0-100).
+  </ResponseField>
+  
+  <ResponseField name="onSplitFinished" type="(chunks: AudioChunk[]) => Promise<void>">
+    Called when splitting completes with the array of generated chunks.
+  </ResponseField>
+
+</Expandable>
+
+## Usage examples
+
+<CodeGroup>
+
+```typescript Simple progress tracking
+import { transcribe } from 'tafrigh';
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    onTranscriptionStarted: async (totalChunks) => {
+      console.log(`Starting transcription of ${totalChunks} chunks`);
+    },
+    onTranscriptionProgress: (chunkIndex) => {
+      console.log(`Completed chunk ${chunkIndex + 1}`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      console.log(`Done! ${transcripts.length} segments transcribed`);
+    }
+  }
+});
+```
+
+```typescript Progress bar
+import { transcribe } from 'tafrigh';
+import cliProgress from 'cli-progress';
+
+const progressBar = new cliProgress.SingleBar({});
+let totalChunks = 0;
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    onTranscriptionStarted: async (total) => {
+      totalChunks = total;
+      progressBar.start(total, 0);
+    },
+    onTranscriptionProgress: (chunkIndex) => {
+      progressBar.update(chunkIndex + 1);
+    },
+    onTranscriptionFinished: async () => {
+      progressBar.stop();
+    }
+  }
+});
+```
+
+```typescript Full pipeline monitoring
+import { transcribe } from 'tafrigh';
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    // Preprocessing callbacks
+    onPreprocessingStarted: async () => {
+      console.log('Starting audio preprocessing...');
+    },
+    onPreprocessingProgress: (progress) => {
+      console.log(`Preprocessing: ${progress}%`);
+    },
+    onPreprocessingFinished: async () => {
+      console.log('Preprocessing complete');
+    },
+    
+    // Splitting callbacks
+    onSplitStarted: async () => {
+      console.log('Splitting audio on silence...');
+    },
+    onSplitProgress: (progress) => {
+      console.log(`Splitting: ${progress}%`);
+    },
+    onSplitFinished: async (chunks) => {
+      console.log(`Split into ${chunks.length} chunks`);
+    },
+    
+    // Transcription callbacks
+    onTranscriptionStarted: async (totalChunks) => {
+      console.log(`Transcribing ${totalChunks} chunks...`);
+    },
+    onTranscriptionProgress: (chunkIndex) => {
+      console.log(`Transcribed chunk ${chunkIndex + 1}`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      console.log(`Transcription complete: ${transcripts.length} segments`);
+      
+      // Save results
+      await saveToFile('transcript.json', transcripts);
+    }
+  }
+});
+```
+
+```typescript Real-time streaming
+import { transcribe } from 'tafrigh';
+import { EventEmitter } from 'events';
+
+class TranscriptionStream extends EventEmitter {
+  async transcribe(audioPath: string) {
+    return transcribe(audioPath, {
+      callbacks: {
+        onTranscriptionStarted: async (totalChunks) => {
+          this.emit('started', { totalChunks });
+        },
+        onTranscriptionProgress: (chunkIndex) => {
+          this.emit('progress', { chunkIndex });
+        },
+        onTranscriptionFinished: async (transcripts) => {
+          this.emit('finished', { transcripts });
+        }
+      }
+    });
+  }
+}
+
+const stream = new TranscriptionStream();
+
+stream.on('started', ({ totalChunks }) => {
+  console.log(`Processing ${totalChunks} chunks`);
+});
+
+stream.on('progress', ({ chunkIndex }) => {
+  console.log(`Chunk ${chunkIndex + 1} done`);
+});
+
+stream.on('finished', ({ transcripts }) => {
+  console.log('All done!', transcripts);
+});
+
+await stream.transcribe('audio.mp3');
+```
+
+</CodeGroup>
+
+## Error handling
+
+When errors occur during transcription, the `onTranscriptionFinished` callback will not be called. Handle errors using try-catch:
+
+```typescript
+import { transcribe, TranscriptionError } from 'tafrigh';
+
+try {
+  const transcript = await transcribe('audio.mp3', {
+    callbacks: {
+      onTranscriptionFinished: async (transcripts) => {
+        // This is only called on complete success
+        console.log('Success!');
+      }
+    }
+  });
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    // Some chunks may have succeeded
+    console.log(`Partial results: ${error.transcripts.length} segments`);
+    console.log(`Failed chunks: ${error.failures.length}`);
+  }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+
+<Card title="TranscribeOptions" icon="sliders" href="/api/types/transcribe-options">
+  Configuration options including callbacks
+</Card>
+
+<Card title="Segment" icon="closed-captioning" href="/api/types/segment">
+  Type passed to onTranscriptionFinished
+</Card>
+
+<Card title="Progress callbacks guide" icon="chart-line" href="/examples/progress-callbacks">
+  Complete guide to using callbacks
+</Card>
+
+<Card title="Error handling" icon="triangle-exclamation" href="/concepts/error-handling">
+  Learn about error handling strategies
+</Card>
+
+</CardGroup>

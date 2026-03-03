@@ -1,0 +1,382 @@
+---
+title: Progress callbacks
+description: Monitor transcription progress and handle failures with callbacks
+---
+
+## Understanding callbacks
+
+Tafrigh provides comprehensive callbacks to monitor every stage of the transcription pipeline: preprocessing, splitting, and transcription. Use these callbacks to build progress indicators, logging systems, or custom error handling.
+
+## Complete callback example
+
+This example demonstrates all available callbacks:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    // Preprocessing callbacks
+    onPreprocessingStarted: async (filePath) => {
+      console.log(`Starting preprocessing: ${filePath}`);
+    },
+    onPreprocessingProgress: async (percent) => {
+      console.log(`Preprocessing: ${percent}%`);
+    },
+    onPreprocessingFinished: async (filePath) => {
+      console.log(`Finished preprocessing: ${filePath}`);
+    },
+
+    // Splitting callbacks
+    onSplittingStarted: async (totalChunks) => {
+      console.log(`Splitting into ${totalChunks} chunks`);
+    },
+    onSplittingProgress: async (chunkFilePath, chunkIndex) => {
+      console.log(`Created chunk ${chunkIndex}: ${chunkFilePath}`);
+    },
+    onSplittingFinished: async () => {
+      console.log('Splitting complete');
+    },
+
+    // Transcription callbacks
+    onTranscriptionStarted: async (totalChunks) => {
+      console.log(`Transcribing ${totalChunks} chunks`);
+    },
+    onTranscriptionProgress: async (chunkIndex) => {
+      console.log(`Transcribed chunk ${chunkIndex}`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      console.log(`Complete! ${transcripts.length} segments`);
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+### Expected output
+
+```
+Starting preprocessing: /tmp/tafrigh/1709438400000.mp3
+Preprocessing: 25%
+Preprocessing: 50%
+Preprocessing: 75%
+Preprocessing: 100%
+Finished preprocessing: /tmp/tafrigh/1709438400000.mp3
+Splitting into 5 chunks
+Created chunk 0: /tmp/tafrigh/chunk_0.wav
+Created chunk 1: /tmp/tafrigh/chunk_1.wav
+Created chunk 2: /tmp/tafrigh/chunk_2.wav
+Created chunk 3: /tmp/tafrigh/chunk_3.wav
+Created chunk 4: /tmp/tafrigh/chunk_4.wav
+Splitting complete
+Transcribing 5 chunks
+Transcribed chunk 0
+Transcribed chunk 1
+Transcribed chunk 2
+Transcribed chunk 3
+Transcribed chunk 4
+Complete! 5 segments
+```
+
+## Building a progress bar
+
+Create a visual progress indicator using callbacks:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+let totalChunks = 0;
+let processedChunks = 0;
+
+function updateProgress(stage, current, total) {
+  const percent = Math.round((current / total) * 100);
+  const bar = '='.repeat(percent / 2) + ' '.repeat(50 - percent / 2);
+  console.log(`[${bar}] ${percent}% - ${stage}`);
+}
+
+const transcript = await transcribe('long-audio.mp3', {
+  callbacks: {
+    onPreprocessingProgress: async (percent) => {
+      const bar = '='.repeat(percent / 2) + ' '.repeat(50 - percent / 2);
+      console.log(`[${bar}] ${percent}% - Preprocessing`);
+    },
+    onTranscriptionStarted: async (total) => {
+      totalChunks = total;
+      processedChunks = 0;
+    },
+    onTranscriptionProgress: async (chunkIndex) => {
+      processedChunks++;
+      updateProgress('Transcribing', processedChunks, totalChunks);
+    },
+  },
+});
+
+console.log('Transcription complete!');
+```
+
+### Expected output
+
+```
+[=========================                         ] 50% - Preprocessing
+[==================================================] 100% - Preprocessing
+[==========                                        ] 20% - Transcribing
+[====================                              ] 40% - Transcribing
+[==============================                    ] 60% - Transcribing
+[========================================          ] 80% - Transcribing
+[==================================================] 100% - Transcribing
+Transcription complete!
+```
+
+## Handling transcription errors
+
+Use `TranscriptionError` to access partial results and retry failed chunks:
+
+```typescript
+import { promises as fs } from 'node:fs';
+import { init, transcribe, TranscriptionError } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+try {
+  const transcript = await transcribe('large-file.mp3');
+  console.log('Success:', transcript);
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.error(`Failed to transcribe ${error.failures.length} chunk(s)`);
+    console.log(`Successfully transcribed ${error.transcripts.length} chunks`);
+    
+    // Access partial transcripts
+    console.log('Partial results:', error.transcripts);
+    
+    // Access failed chunk information
+    error.failures.forEach((failure, index) => {
+      console.error(`Failed chunk ${failure.index}:`, failure.error);
+    });
+    
+    // Clean up temporary directory
+    if (error.outputDir) {
+      await fs.rm(error.outputDir, { recursive: true });
+    }
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
+
+## Resuming failed transcriptions
+
+Automatically retry failed chunks without re-processing successful ones:
+
+```typescript
+import { promises as fs } from 'node:fs';
+import {
+  init,
+  transcribe,
+  TranscriptionError,
+  resumeFailedTranscriptions,
+} from 'tafrigh';
+
+init({ apiKeys: ['key1', 'key2', 'key3'] });
+
+try {
+  const transcript = await transcribe('large-file.mp3');
+  console.log('All chunks transcribed successfully');
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.log(`Initial run: ${error.transcripts.length} succeeded, ${error.failures.length} failed`);
+    
+    // Retry only the failed chunks
+    const { failures, transcripts } = await resumeFailedTranscriptions(error, {
+      retries: 3,
+      concurrency: 2,
+    });
+    
+    if (failures.length === 0) {
+      console.log('All chunks transcribed after retry!');
+      console.log('Complete transcript:', transcripts);
+    } else {
+      console.error(`Still have ${failures.length} failures after retry`);
+      console.log('Partial transcript:', transcripts);
+    }
+    
+    // Clean up temporary directory
+    if (error.outputDir) {
+      await fs.rm(error.outputDir, { recursive: true });
+    }
+  }
+}
+```
+
+<Note>
+The `resumeFailedTranscriptions` function merges successful transcripts from both the initial attempt and retry, sorted by timestamp. The temporary directory is preserved until you explicitly delete it.
+</Note>
+
+## Real-time progress updates
+
+Send progress updates to a client application:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+import { EventEmitter } from 'events';
+
+const progressEmitter = new EventEmitter();
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+// Listen for progress events
+progressEmitter.on('progress', ({ stage, percent }) => {
+  console.log(`${stage}: ${percent}%`);
+  // Send to client via WebSocket, HTTP, etc.
+});
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    onPreprocessingProgress: async (percent) => {
+      progressEmitter.emit('progress', { stage: 'preprocessing', percent });
+    },
+    onSplittingStarted: async (totalChunks) => {
+      progressEmitter.emit('progress', { 
+        stage: 'splitting', 
+        percent: 0,
+        totalChunks 
+      });
+    },
+    onTranscriptionStarted: async (totalChunks) => {
+      progressEmitter.emit('progress', { 
+        stage: 'transcription', 
+        percent: 0,
+        totalChunks 
+      });
+    },
+    onTranscriptionProgress: async (chunkIndex) => {
+      progressEmitter.emit('progress', { 
+        stage: 'transcription', 
+        chunkIndex 
+      });
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      progressEmitter.emit('progress', { 
+        stage: 'complete', 
+        percent: 100,
+        totalSegments: transcripts.length 
+      });
+    },
+  },
+});
+```
+
+## Logging to file
+
+Save detailed logs for debugging:
+
+```typescript
+import { promises as fs } from 'node:fs';
+import { init, transcribe } from 'tafrigh';
+
+const logFile = 'transcription-log.txt';
+
+const log = async (message) => {
+  const timestamp = new Date().toISOString();
+  await fs.appendFile(logFile, `[${timestamp}] ${message}\n`);
+};
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    onPreprocessingStarted: async (filePath) => {
+      await log(`Preprocessing started: ${filePath}`);
+    },
+    onPreprocessingFinished: async (filePath) => {
+      await log(`Preprocessing finished: ${filePath}`);
+    },
+    onSplittingStarted: async (totalChunks) => {
+      await log(`Splitting started: ${totalChunks} chunks`);
+    },
+    onSplittingProgress: async (chunkFilePath, chunkIndex) => {
+      await log(`Created chunk ${chunkIndex}: ${chunkFilePath}`);
+    },
+    onTranscriptionStarted: async (totalChunks) => {
+      await log(`Transcription started: ${totalChunks} chunks`);
+    },
+    onTranscriptionProgress: async (chunkIndex) => {
+      await log(`Transcribed chunk ${chunkIndex}`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      await log(`Transcription complete: ${transcripts.length} segments`);
+    },
+  },
+});
+
+console.log('Check transcription-log.txt for details');
+```
+
+## Performance monitoring
+
+Track timing metrics for each stage:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+const timings = {
+  preprocessing: { start: 0, end: 0 },
+  splitting: { start: 0, end: 0 },
+  transcription: { start: 0, end: 0 },
+};
+
+init({ apiKeys: ['key1', 'key2', 'key3'] });
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    onPreprocessingStarted: async () => {
+      timings.preprocessing.start = Date.now();
+    },
+    onPreprocessingFinished: async () => {
+      timings.preprocessing.end = Date.now();
+    },
+    onSplittingStarted: async () => {
+      timings.splitting.start = Date.now();
+    },
+    onSplittingFinished: async () => {
+      timings.splitting.end = Date.now();
+    },
+    onTranscriptionStarted: async () => {
+      timings.transcription.start = Date.now();
+    },
+    onTranscriptionFinished: async () => {
+      timings.transcription.end = Date.now();
+    },
+  },
+});
+
+// Calculate durations
+const preprocessingTime = timings.preprocessing.end - timings.preprocessing.start;
+const splittingTime = timings.splitting.end - timings.splitting.start;
+const transcriptionTime = timings.transcription.end - timings.transcription.start;
+const totalTime = preprocessingTime + splittingTime + transcriptionTime;
+
+console.log('Performance Metrics:');
+console.log(`Preprocessing: ${preprocessingTime}ms`);
+console.log(`Splitting: ${splittingTime}ms`);
+console.log(`Transcription: ${transcriptionTime}ms`);
+console.log(`Total: ${totalTime}ms`);
+```
+
+### Expected output
+
+```
+Performance Metrics:
+Preprocessing: 3421ms
+Splitting: 892ms
+Transcription: 12567ms
+Total: 16880ms
+```
+
+<Tip>
+Use multiple API keys and higher concurrency to significantly reduce transcription time for longer audio files.
+</Tip>

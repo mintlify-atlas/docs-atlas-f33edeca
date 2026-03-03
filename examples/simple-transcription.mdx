@@ -1,0 +1,169 @@
+---
+title: Simple transcription
+description: Learn how to transcribe audio files with minimal configuration
+---
+
+## Basic transcription
+
+The simplest way to use Tafrigh is to provide an audio file path or URL and let the library handle all preprocessing, chunking, and transcription automatically.
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+// Initialize with your Wit.ai API key
+init({ apiKeys: ['your-wit-ai-key'] });
+
+// Transcribe a local file
+const transcript = await transcribe('path/to/audio.mp3');
+
+console.log(transcript);
+```
+
+### Expected output
+
+The `transcribe` function returns an array of `Segment` objects with timestamps and transcribed text:
+
+```json
+[
+  {
+    "text": "Hello world",
+    "start": 0,
+    "end": 2.5,
+    "confidence": 0.95,
+    "tokens": [
+      { "text": "Hello", "start": 0, "end": 1.2, "confidence": 0.98 },
+      { "text": "world", "start": 1.3, "end": 2.5, "confidence": 0.92 }
+    ]
+  },
+  {
+    "text": "This is a test",
+    "start": 2.7,
+    "end": 4.2,
+    "confidence": 0.88
+  }
+]
+```
+
+<Note>
+Each segment includes:
+- `text` - The transcribed text for that segment
+- `start` - Start time in seconds
+- `end` - End time in seconds
+- `confidence` - Optional confidence score (0-1)
+- `tokens` - Optional word-by-word breakdown with individual timestamps
+</Note>
+
+## Transcribing remote files
+
+You can also transcribe audio from URLs without downloading the file first:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('https://example.com/audio.mp3');
+console.log(transcript);
+```
+
+<Tip>
+Tafrigh supports any audio or video format that ffmpeg can process, including MP3, WAV, MP4, M4A, OGG, and more.
+</Tip>
+
+## Language considerations
+
+The language used for transcription depends on the Wit.ai API key configuration:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+// English transcription (use an English-configured Wit.ai key)
+init({ apiKeys: ['english-wit-ai-key'] });
+const englishTranscript = await transcribe('english-audio.mp3');
+
+// Arabic transcription (use an Arabic-configured Wit.ai key)
+init({ apiKeys: ['arabic-wit-ai-key'] });
+const arabicTranscript = await transcribe('arabic-audio.mp3');
+```
+
+<Warning>
+If your Wit.ai key is configured for English and you provide Arabic audio, the transcription will not be accurate. Always match the API key language to your audio content.
+</Warning>
+
+## Using custom logger
+
+By default, Tafrigh doesn't output logs. You can enable logging by providing a logger during initialization:
+
+<CodeGroup>
+
+```typescript Console logger
+import { init, transcribe } from 'tafrigh';
+
+// Use console for logging
+init({ 
+  apiKeys: ['your-wit-ai-key'],
+  logger: console 
+});
+
+const transcript = await transcribe('audio.mp3');
+```
+
+```typescript Pino logger
+import pino from 'pino';
+import { init, transcribe } from 'tafrigh';
+
+const logger = pino({ level: 'debug' });
+
+init({ 
+  apiKeys: ['your-wit-ai-key'],
+  logger 
+});
+
+const transcript = await transcribe('audio.mp3');
+```
+
+```typescript Custom logger
+import { init, transcribe } from 'tafrigh';
+
+const customLogger = {
+  info: (msg) => myService.log('INFO', msg),
+  debug: (msg) => myService.log('DEBUG', msg),
+  error: (msg) => myService.log('ERROR', msg),
+  warn: (msg) => myService.log('WARN', msg),
+};
+
+init({ 
+  apiKeys: ['your-wit-ai-key'],
+  logger: customLogger 
+});
+
+const transcript = await transcribe('audio.mp3');
+```
+
+</CodeGroup>
+
+## Error handling
+
+Wrap your transcription calls in try-catch blocks to handle errors gracefully:
+
+```typescript
+import { init, transcribe, TranscriptionError } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+try {
+  const transcript = await transcribe('audio.mp3');
+  console.log('Transcription successful:', transcript);
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.error(`Failed to transcribe ${error.failures.length} chunk(s)`);
+    console.log('Partial transcripts:', error.transcripts);
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
+
+<Tip>
+See the [progress callbacks](/examples/progress-callbacks) example to learn how to monitor transcription progress and handle failures with resume functionality.
+</Tip>

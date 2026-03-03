@@ -1,0 +1,540 @@
+---
+title: Noise reduction
+description: Deep dive into noise reduction techniques and configuration for optimal transcription quality
+---
+
+Noise reduction is a critical preprocessing step that can dramatically improve transcription accuracy. This guide explains each noise reduction technique in detail and helps you choose the right settings for your audio.
+
+## Overview
+
+Tafrigh uses multiple noise reduction techniques that work together:
+
+- **High-pass filtering**: Removes low-frequency noise
+- **Low-pass filtering**: Removes high-frequency noise  
+- **FFT-based denoising**: Learns and removes specific noise profiles
+- **Dialogue enhancement**: Boosts speech frequencies
+
+You can enable, disable, or tune each technique independently.
+
+## High-pass filtering
+
+A high-pass filter attenuates frequencies below a specified cutoff, removing low-frequency noise while preserving speech.
+
+### When to use it
+
+- **Rumble**: Microphone handling noise, traffic, machinery
+- **Hum**: Electrical interference (50/60 Hz AC hum)
+- **Wind noise**: Outdoor recordings
+- **HVAC noise**: Air conditioning, ventilation systems
+
+### How it works
+
+Frequencies below the cutoff are progressively attenuated:
+
+- Fundamental frequencies of male voices: ~85-180 Hz
+- Fundamental frequencies of female voices: ~165-255 Hz  
+- Speech intelligibility: mostly above 250 Hz
+
+Setting the cutoff at 300 Hz removes noise while preserving most speech information.
+
+### Configuration
+
+<ParamField path="highpass" type="number | null" default="300">
+  Cutoff frequency in Hz. Set to `null` to disable.
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```typescript Conservative (preserve more low frequencies)
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 100,  // Gentle filtering
+    },
+  },
+});
+```
+
+```typescript Standard (balanced)
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 300,  // Default value
+    },
+  },
+});
+```
+
+```typescript Aggressive (remove more noise)
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 500,  // Strong filtering
+    },
+  },
+});
+```
+
+```typescript Disabled
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: null,  // No high-pass filtering
+    },
+  },
+});
+```
+
+</CodeGroup>
+
+<Warning>
+  Setting `highpass` too high (>500 Hz) may make voices sound thin or tinny by removing too much low-frequency content.
+</Warning>
+
+## Low-pass filtering
+
+A low-pass filter attenuates frequencies above a specified cutoff, removing high-frequency noise while preserving speech.
+
+### When to use it
+
+- **Hiss**: Tape hiss, analog noise
+- **Electronic interference**: Digital artifacts, radio interference
+- **Sibilance**: Excessive "s" and "sh" sounds
+- **High-frequency artifacts**: Compression artifacts, clipping
+
+### How it works
+
+Frequencies above the cutoff are progressively attenuated:
+
+- Most speech intelligibility: below 3500 Hz
+- Consonant clarity: 2000-4000 Hz
+- Sibilants (s, sh, f): 4000-8000 Hz
+
+Setting the cutoff at 3000 Hz preserves speech intelligibility while removing most high-frequency noise.
+
+### Configuration
+
+<ParamField path="lowpass" type="number | null" default="3000">
+  Cutoff frequency in Hz. Set to `null` to disable.
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```typescript Conservative (preserve more high frequencies)
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      lowpass: 4000,  // Gentle filtering
+    },
+  },
+});
+```
+
+```typescript Standard (balanced)
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      lowpass: 3000,  // Default value
+    },
+  },
+});
+```
+
+```typescript Aggressive (telephone quality)
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      lowpass: 1,  // Very strong filtering
+    },
+  },
+});
+```
+
+```typescript Disabled
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      lowpass: null,  // No low-pass filtering
+    },
+  },
+});
+```
+
+</CodeGroup>
+
+<Warning>
+  Setting `lowpass` too low (below 2000 Hz) may reduce speech clarity by removing important consonant frequencies.
+</Warning>
+
+## FFT-based denoising
+
+FFT (Fast Fourier Transform) denoising learns a noise profile from a sample of your audio and removes it from the entire file.
+
+### When to use it
+
+- **Consistent background noise**: AC units, fans, computers
+- **Room tone**: Ambient noise in a recording space
+- **Electrical hum**: Constant 50/60 Hz interference
+- **White/pink noise**: Analog recording noise
+
+### How it works
+
+1. **Sample the noise**: You specify a time range (`afftdnStart` to `afftdnStop`) that contains only background noise
+2. **Learn the profile**: The denoiser analyzes the frequency spectrum of the noise
+3. **Remove the noise**: The learned profile is subtracted from the entire audio file
+4. **Threshold control**: `afftdn_nf` sets the noise floor (how aggressive the removal is)
+
+### Finding a noise sample
+
+You need a segment of your audio that contains **only background noise, no speech**:
+
+1. Open your audio in a media player
+2. Find a section before the speaker begins, during a long pause, or after they finish
+3. Note the start and end timestamps (aim for 0.5-3 seconds)
+4. Use these timestamps for `afftdnStart` and `afftdnStop`
+
+<Tip>
+  The beginning of most recordings has a few seconds of room tone before anyone speaks. This is ideal for noise sampling.
+</Tip>
+
+### Configuration
+
+<ParamField path="afftdnStart" type="number | null" default="0">
+  Start time in seconds for noise sampling. Must be used with `afftdnStop`.
+</ParamField>
+
+<ParamField path="afftdnStop" type="number | null" default="1.5">
+  End time in seconds for noise sampling. Must be used with `afftdnStart`.
+</ParamField>
+
+<ParamField path="afftdn_nf" type="number | null" default="-20">
+  Noise floor in dB. Lower values are more aggressive. Must be used with `afftdnStart` and `afftdnStop`.
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```typescript Standard noise sampling
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 0,      // First second of audio
+      afftdnStop: 1.5,     // Through 1.5 seconds
+      afftdn_nf: -20,      // Moderate reduction
+    },
+  },
+});
+```
+
+```typescript Custom noise sample location
+const transcript = await transcribe('podcast.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 45.5,   // Noise sample at 45.5s
+      afftdnStop: 47.0,    // Through 47.0s
+      afftdn_nf: -20,
+    },
+  },
+});
+```
+
+```typescript Light denoising
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 0,
+      afftdnStop: 1,
+      afftdn_nf: -15,      // Less aggressive
+    },
+  },
+});
+```
+
+```typescript Aggressive denoising
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 0,
+      afftdnStop: 2,       // Longer sample
+      afftdn_nf: -35,      // Very aggressive
+    },
+  },
+});
+```
+
+```typescript Disabled
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: null,   // All three must be null
+      afftdnStop: null,
+      afftdn_nf: null,
+    },
+  },
+});
+```
+
+</CodeGroup>
+
+<Warning>
+  The noise sample must contain **only noise**. If speech is present, the denoiser will learn speech as "noise" and remove it from your entire recording.
+</Warning>
+
+### Choosing the noise floor
+
+The `afftdn_nf` parameter controls how aggressively noise is removed:
+
+- **Light reduction** (`-15` to `-10` dB): Removes obvious noise, preserves audio character
+- **Moderate reduction** (`-20` to `-25` dB): Good balance for most use cases
+- **Aggressive reduction** (`-30` to `-40` dB): Maximum noise removal, may affect speech quality
+
+<Tip>
+  Start with `-20` dB and adjust based on results. If speech sounds muffled or "underwater," increase the value (less negative). If noise remains, decrease the value (more negative).
+</Tip>
+
+## Dialogue enhancement
+
+Dialogue enhancement boosts mid-range frequencies (1000-4000 Hz) where human speech is most prominent.
+
+### When to use it
+
+- **Muffled recordings**: Low-quality microphones, distance from speaker
+- **Background music**: When speech competes with music
+- **Multiple speakers**: Helps individual voices stand out
+- **Generally recommended**: Almost always improves transcription accuracy
+
+### How it works
+
+The enhancement applies a frequency curve that:
+
+- Boosts 1000-2000 Hz (vowel clarity)
+- Boosts 2000-4000 Hz (consonant definition)  
+- Leaves other frequencies unchanged
+
+This makes speech more intelligible without affecting overall tonal balance.
+
+### Configuration
+
+<ParamField path="dialogueEnhance" type="boolean" default="true">
+  Enable dialogue enhancement. Set to `false` to disable.
+</ParamField>
+
+### Examples
+
+<CodeGroup>
+
+```typescript Enabled (default)
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      dialogueEnhance: true,  // Default value
+    },
+  },
+});
+```
+
+```typescript Disabled
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      dialogueEnhance: false,  // No enhancement
+    },
+  },
+});
+```
+
+</CodeGroup>
+
+<Tip>
+  Dialogue enhancement rarely has downsides. Leave it enabled unless you have a specific reason to disable it.
+</Tip>
+
+## Complete examples
+
+### Clean studio recording
+
+Minimal processing for high-quality audio:
+
+```typescript
+const transcript = await transcribe('studio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 100,           // Gentle rumble removal
+      lowpass: 4000,           // Preserve more frequencies
+      afftdnStart: null,       // No FFT denoising needed
+      afftdnStop: null,
+      afftdn_nf: null,
+      dialogueEnhance: true,   // Still helpful
+    },
+  },
+});
+```
+
+### Podcast with moderate noise
+
+Balanced settings for typical podcast audio:
+
+```typescript
+const transcript = await transcribe('podcast.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 200,           // Remove low rumble
+      lowpass: 3500,           // Remove hiss
+      afftdnStart: 0,          // Sample first second
+      afftdnStop: 1,
+      afftdn_nf: -20,          // Moderate denoising
+      dialogueEnhance: true,
+    },
+  },
+});
+```
+
+### Noisy field recording
+
+Aggressive processing for challenging audio:
+
+```typescript
+const transcript = await transcribe('field-recording.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 300,           // Strong low-frequency filtering
+      lowpass: 3000,           // Strong high-frequency filtering
+      afftdnStart: 2.0,        // Longer noise sample
+      afftdnStop: 4.0,
+      afftdn_nf: -35,          // Aggressive denoising
+      dialogueEnhance: true,
+    },
+  },
+});
+```
+
+### Telephone or low-quality audio
+
+Telephone bandwidth simulation:
+
+```typescript
+const transcript = await transcribe('phone-call.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 300,
+      lowpass: 3400,           // Telephone bandwidth
+      afftdnStart: 0,
+      afftdnStop: 1,
+      afftdn_nf: -25,
+      dialogueEnhance: true,
+    },
+  },
+});
+```
+
+### No preprocessing
+
+Disable all noise reduction:
+
+```typescript
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: null,  // Skip all preprocessing
+  },
+});
+```
+
+## Troubleshooting
+
+### Speech sounds muffled or underwater
+
+**Problem**: Over-aggressive noise reduction is removing speech frequencies.
+
+**Solutions**:
+- Increase `afftdn_nf` (make it less negative): `-35` → `-20` → `-15`
+- Widen filter ranges: `highpass: 200` instead of `400`, `lowpass: 3500` instead of `3000`
+- Check your noise sample doesn't contain speech
+
+### Noise remains in the transcription
+
+**Problem**: Noise reduction isn't strong enough.
+
+**Solutions**:
+- Decrease `afftdn_nf` (make it more negative): `-15` → `-20` → `-30`
+- Narrow filter ranges: `highpass: 400` instead of `200`, `lowpass: 2500` instead of `3500`
+- Ensure your noise sample is 1-3 seconds long and representative
+- Check that noise is consistent (FFT denoising only works for consistent noise)
+
+### Voices sound robotic or have artifacts
+
+**Problem**: Too much processing or poor noise sample.
+
+**Solutions**:
+- Choose a better noise sample (no speech, representative background noise)
+- Reduce denoising aggressiveness: `afftdn_nf: -15` instead of `-30`
+- Disable FFT denoising entirely if noise sample is poor
+- Use only filters: set `afftdnStart`, `afftdnStop`, `afftdn_nf` to `null`
+
+### Low-quality audio after preprocessing
+
+**Problem**: Filters are too restrictive.
+
+**Solutions**:
+- Widen the frequency range: `highpass: 100`, `lowpass: 4000`
+- Try minimal filtering: only `dialogueEnhance: true`
+- Test without preprocessing: `noiseReduction: null`
+
+## Monitoring preprocessing
+
+Use callbacks to track preprocessing progress:
+
+```typescript
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 300,
+      lowpass: 3000,
+      afftdnStart: 0,
+      afftdnStop: 1.5,
+      afftdn_nf: -20,
+      dialogueEnhance: true,
+    },
+  },
+  callbacks: {
+    onPreprocessingStarted: async (filePath) => {
+      console.log(`Starting noise reduction on: ${filePath}`);
+    },
+    onPreprocessingProgress: async (percent) => {
+      process.stdout.write(`\rPreprocessing: ${percent}% complete`);
+    },
+    onPreprocessingFinished: async (filePath) => {
+      console.log(`\nFinished preprocessing: ${filePath}`);
+    },
+  },
+});
+```
+
+## Best practices
+
+1. **Start with defaults**: The default settings work well for most audio
+2. **Test incrementally**: Change one parameter at a time to see its effect
+3. **Listen to your audio**: Identify specific noise types to target
+4. **Choose good noise samples**: 1-3 seconds of noise-only audio
+5. **Don't over-process**: More filtering isn't always better
+6. **Preserve speech**: When in doubt, be conservative
+7. **Document your settings**: Save working configurations for similar audio
+
+<Warning>
+  Noise reduction can't fix everything. Severely damaged or low-quality audio may not transcribe well even with optimal settings.
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Preprocess options" icon="waveform-lines" href="/api/config/preprocess-options">
+    Full preprocessing configuration reference
+  </Card>
+  <Card title="Split options" icon="scissors" href="/api/config/split-options">
+    Configure audio chunk splitting
+  </Card>
+</CardGroup>

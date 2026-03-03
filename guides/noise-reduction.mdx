@@ -1,0 +1,328 @@
+---
+title: Noise reduction and audio preprocessing
+description: Improve transcription accuracy by applying noise reduction, filtering, and dialogue enhancement
+---
+
+Tafrigh includes sophisticated audio preprocessing capabilities to enhance transcription accuracy, especially for recordings with background noise or poor audio quality.
+
+## Noise reduction overview
+
+By default, Tafrigh applies noise reduction and dialogue enhancement to improve transcription quality. All preprocessing is handled automatically using ffmpeg filters.
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+// Default preprocessing is applied automatically
+const transcript = await transcribe('noisy-audio.mp3');
+```
+
+## Configuring noise reduction
+
+You can customize noise reduction settings to match your audio characteristics:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 1,        // Start noise reduction at 1 second
+      afftdnStop: 1.5,       // Stop noise reduction at 1.5 seconds
+      afftdn_nf: -25,        // Noise floor in dB
+      dialogueEnhance: true, // Enhance speech clarity
+      highpass: 200,         // High-pass filter at 200 Hz
+      lowpass: 3000,         // Low-pass filter at 3000 Hz
+    },
+  },
+};
+
+const transcript = await transcribe('audio.mp3', options);
+```
+
+## FFT-based denoiser
+
+The FFT denoiser learns the noise profile from a sample of your audio and removes it from the entire recording.
+
+### Noise learning window
+
+The `afftdnStart` and `afftdnStop` parameters define the time window used to learn the noise profile:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 0,    // Start learning from beginning
+      afftdnStop: 2,     // Learn for first 2 seconds
+    },
+  },
+};
+```
+
+**Default:** `afftdnStart: 0`, `afftdnStop: 1.5`
+
+<Note>
+Choose a section of your audio that contains only background noise (no speech) for best results. The first 1-2 seconds of a recording often work well.
+</Note>
+
+### Noise floor adjustment
+
+The `afftdn_nf` parameter controls the noise floor threshold in decibels:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdn_nf: -30,  // More aggressive noise reduction
+    },
+  },
+};
+```
+
+**Default:** `-20` dB
+
+**Tuning guidelines:**
+- Heavy background noise: Use `-30` or lower
+- Light background noise: Use `-20` or higher
+- Very quiet recordings: Use `-15` or higher
+
+<Warning>
+Setting `afftdn_nf` too low may introduce artifacts or remove parts of the speech signal.
+</Warning>
+
+## Frequency filtering
+
+Tafrigh uses high-pass and low-pass filters to isolate voice frequencies and remove unwanted noise.
+
+### High-pass filter
+
+Removes low-frequency rumble and background noise below human speech:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 300,  // Filter out frequencies below 300 Hz
+    },
+  },
+};
+```
+
+**Default:** `300` Hz
+
+**Common values:**
+- Male voices: `200` Hz
+- Female voices: `300` Hz
+- High background rumble: `400` Hz
+- Disable: Set to `null`
+
+### Low-pass filter
+
+Removes high-frequency noise above human speech:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: {
+      lowpass: 3000,  // Filter out frequencies above 3000 Hz
+    },
+  },
+};
+```
+
+**Default:** `3000` Hz
+
+**Common values:**
+- Telephone quality: `3400` Hz
+- Broadcast quality: `3000` Hz
+- Full range: `8000` Hz or higher
+- Disable: Set to `null`
+
+## Dialogue enhancement
+
+Dialogue enhancement boosts midrange frequencies where human speech is most prominent:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: {
+      dialogueEnhance: true,
+    },
+  },
+};
+```
+
+**Default:** `true`
+
+This is especially useful for:
+- Recordings with background music
+- Multiple speakers at different volumes
+- Low-quality microphones
+- Compressed audio formats
+
+## Disabling noise reduction
+
+For high-quality recordings or when preprocessing is unwanted, you can disable noise reduction entirely:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: null,  // Skip noise reduction completely
+  },
+};
+
+const transcript = await transcribe('studio-quality.wav', options);
+```
+
+## Selectively disabling filters
+
+You can disable individual filters while keeping others active:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: null,           // Disable high-pass filter
+      lowpass: null,            // Disable low-pass filter
+      afftdnStart: null,        // Disable FFT denoiser
+      afftdnStop: null,
+      dialogueEnhance: true,    // Keep dialogue enhancement
+    },
+  },
+};
+```
+
+## Preset configurations
+
+<Tabs>
+  <Tab title="Studio quality">
+    For high-quality recordings, use minimal processing:
+    
+    ```javascript
+    const options = {
+      preprocessOptions: {
+        noiseReduction: {
+          afftdnStart: null,
+          afftdnStop: null,
+          afftdn_nf: null,
+          highpass: null,
+          lowpass: null,
+          dialogueEnhance: false,
+        },
+      },
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Podcast">
+    Balanced settings for podcasts with some background noise:
+    
+    ```javascript
+    const options = {
+      preprocessOptions: {
+        noiseReduction: {
+          afftdnStart: 1,
+          afftdnStop: 1.5,
+          afftdn_nf: -25,
+          highpass: 200,
+          lowpass: 3000,
+          dialogueEnhance: true,
+        },
+      },
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Street interview">
+    Aggressive noise reduction for very noisy environments:
+    
+    ```javascript
+    const options = {
+      preprocessOptions: {
+        noiseReduction: {
+          afftdnStart: 0,
+          afftdnStop: 2,
+          afftdn_nf: -35,
+          highpass: 400,
+          lowpass: 2500,
+          dialogueEnhance: true,
+        },
+      },
+    };
+    ```
+  </Tab>
+  
+  <Tab title="Phone call">
+    Optimized for telephone audio:
+    
+    ```javascript
+    const options = {
+      preprocessOptions: {
+        noiseReduction: {
+          afftdnStart: 0.5,
+          afftdnStop: 1,
+          afftdn_nf: -20,
+          highpass: 300,
+          lowpass: 3400,
+          dialogueEnhance: true,
+        },
+      },
+    };
+    ```
+  </Tab>
+</Tabs>
+
+## Monitoring preprocessing
+
+Use callbacks to track preprocessing progress:
+
+```javascript
+const options = {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 1,
+      afftdnStop: 1.5,
+      afftdn_nf: -25,
+      dialogueEnhance: true,
+    },
+  },
+  callbacks: {
+    onPreprocessingStarted: async (filePath) => {
+      console.log(`Starting preprocessing: ${filePath}`);
+    },
+    onPreprocessingProgress: async (percent) => {
+      console.log(`Preprocessing: ${percent}% complete`);
+    },
+    onPreprocessingFinished: async (filePath) => {
+      console.log(`Preprocessing complete: ${filePath}`);
+    },
+  },
+};
+
+const transcript = await transcribe('audio.mp3', options);
+```
+
+See the [Callbacks reference](/api-reference/callbacks) for more details.
+
+## Audio normalization
+
+Tafrigh automatically normalizes audio chunks by:
+
+1. Adding silence padding at chunk boundaries
+2. Normalizing volume levels across chunks
+3. Applying configured noise reduction filters
+
+This ensures consistent transcription quality even when the source audio has variable volume levels.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Advanced configuration" icon="sliders" href="/guides/advanced-configuration">
+    Fine-tune chunk duration and silence detection
+  </Card>
+  <Card title="Callbacks" icon="webhook" href="/api/types/callbacks">
+    Monitor all stages of the transcription pipeline
+  </Card>
+  <Card title="Concurrency" icon="gauge-high" href="/guides/concurrency">
+    Speed up processing with parallel transcription
+  </Card>
+</CardGroup>

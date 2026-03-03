@@ -1,0 +1,329 @@
+---
+title: 'Error types'
+description: 'TranscriptionError and FailedTranscription types for error handling'
+---
+
+## Overview
+
+Tafrigh provides specialized error types that give you detailed information about transcription failures, including which chunks failed, which succeeded, and access to temporary files for debugging.
+
+## TranscriptionError
+
+Thrown when one or more audio chunks fail to transcribe. This error includes information about both successful and failed transcriptions, allowing you to resume from failures or extract partial results.
+
+### Type definition
+
+```typescript
+class TranscriptionError extends Error {
+    readonly chunkFiles: AudioChunk[];
+    readonly failures: FailedTranscription[];
+    readonly outputDir?: string;
+    readonly transcripts: Segment[];
+    
+    get failedChunks(): AudioChunk[];
+    get hasFailures(): boolean;
+}
+```
+
+### Properties
+
+<ResponseField name="message" type="string" required>
+  Error message describing the failure.
+  
+  Typically includes the number of failed chunks.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Always set to `'TranscriptionError'` for type identification.
+</ResponseField>
+
+<ResponseField name="chunkFiles" type="AudioChunk[]" required>
+  All audio chunks that were generated from the original file.
+  
+  <Expandable title="AudioChunk structure">
+    Each `AudioChunk` contains:
+    - `filename`: Path to the chunk file
+    - `range`: Object with `start` and `end` times in seconds
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="failures" type="FailedTranscription[]" required>
+  Array of failed transcription attempts with error details.
+  
+  See [FailedTranscription](#failedtranscription) below for structure.
+</ResponseField>
+
+<ResponseField name="outputDir" type="string">
+  Path to the temporary directory containing chunk files.
+  
+  <Note>
+    Only available when `preventCleanup: true` is set in options. Otherwise, the directory is automatically cleaned up before the error is thrown.
+  </Note>
+</ResponseField>
+
+<ResponseField name="transcripts" type="Segment[]" required>
+  Successfully transcribed segments.
+  
+  You can use these partial results or pass them to `resumeFailedTranscriptions()` to retry only the failed chunks.
+</ResponseField>
+
+### Computed properties
+
+<ResponseField name="failedChunks" type="AudioChunk[]" readonly>
+  Convenience getter that extracts just the chunk objects from the failures array.
+  
+  Equivalent to `error.failures.map(f => f.chunk)`.
+</ResponseField>
+
+<ResponseField name="hasFailures" type="boolean" readonly>
+  Returns `true` if there are any failures.
+  
+  Equivalent to `error.failures.length > 0`.
+</ResponseField>
+
+## FailedTranscription
+
+Represents a single failed transcription attempt, including the chunk that failed and the error that occurred.
+
+### Type definition
+
+```typescript
+type FailedTranscription = {
+    chunk: AudioChunk;
+    error: unknown;
+    index: number;
+};
+```
+
+### Properties
+
+<ResponseField name="chunk" type="AudioChunk" required>
+  The audio chunk that failed to transcribe.
+  
+  Contains `filename` and `range` properties.
+</ResponseField>
+
+<ResponseField name="error" type="unknown" required>
+  The error that occurred during transcription.
+  
+  This could be a network error, API error, or any other exception thrown during the transcription process.
+</ResponseField>
+
+<ResponseField name="index" type="number" required>
+  The 0-based index of this chunk in the original chunk array.
+  
+  Useful for tracking which specific chunks failed in order.
+</ResponseField>
+
+## Usage examples
+
+<CodeGroup>
+
+```typescript Basic error handling
+import { transcribe, TranscriptionError } from 'tafrigh';
+
+try {
+  const transcript = await transcribe('audio.mp3');
+  console.log('Success!', transcript);
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.error(`Failed to transcribe ${error.failures.length} chunks`);
+    console.log(`Got ${error.transcripts.length} successful segments`);
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
+
+```typescript Extract partial results
+import { transcribe, TranscriptionError, Segment } from 'tafrigh';
+
+let partialTranscripts: Segment[] = [];
+
+try {
+  const transcript = await transcribe('audio.mp3');
+  partialTranscripts = transcript;
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    // Use the successful segments even though some failed
+    partialTranscripts = error.transcripts;
+    
+    console.log('Partial transcription:');
+    partialTranscripts.forEach((segment) => {
+      console.log(`[${segment.start}s]: ${segment.text}`);
+    });
+  }
+}
+```
+
+```typescript Inspect failures
+import { transcribe, TranscriptionError } from 'tafrigh';
+
+try {
+  const transcript = await transcribe('audio.mp3');
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.log('\nFailed chunks:');
+    error.failures.forEach((failure) => {
+      console.log(`Chunk ${failure.index}: ${failure.chunk.filename}`);
+      console.log(`  Time range: ${failure.chunk.range.start}s - ${failure.chunk.range.end}s`);
+      console.log(`  Error: ${failure.error}`);
+    });
+    
+    // Alternative: use the failedChunks getter
+    console.log(`\nTotal failed: ${error.failedChunks.length}`);
+  }
+}
+```
+
+```typescript Resume failed transcriptions
+import { transcribe, resumeFailedTranscriptions, TranscriptionError } from 'tafrigh';
+
+try {
+  const transcript = await transcribe('audio.mp3', {
+    retries: 2
+  });
+  console.log('Success!', transcript);
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.log(`Initial attempt: ${error.failures.length} failures`);
+    
+    // Retry just the failed chunks
+    try {
+      const result = await resumeFailedTranscriptions(error, {
+        retries: 3,
+        concurrency: 2
+      });
+      
+      if (result.failures.length === 0) {
+        console.log('Success after retry!');
+        console.log('Complete transcript:', result.transcripts);
+      } else {
+        console.log(`Still have ${result.failures.length} failures`);
+      }
+    } catch (retryError) {
+      console.error('Retry also failed:', retryError);
+    }
+  }
+}
+```
+
+```typescript Debug with preventCleanup
+import { transcribe, TranscriptionError } from 'tafrigh';
+import { promises as fs } from 'fs';
+
+try {
+  const transcript = await transcribe('audio.mp3', {
+    preventCleanup: true  // Keep temporary files
+  });
+} catch (error) {
+  if (error instanceof TranscriptionError && error.outputDir) {
+    console.log(`Temp files preserved in: ${error.outputDir}`);
+    
+    // List all chunk files
+    const files = await fs.readdir(error.outputDir);
+    console.log('Chunk files:', files);
+    
+    // You can now manually inspect the audio chunks
+    // or retry transcription on specific files
+    
+    // Don't forget to clean up when done
+    await fs.rm(error.outputDir, { recursive: true, force: true });
+  }
+}
+```
+
+```typescript Type guard for error checking
+import { transcribe, TranscriptionError } from 'tafrigh';
+
+function isTranscriptionError(error: unknown): error is TranscriptionError {
+  return error instanceof TranscriptionError;
+}
+
+async function safeTranscribe(audioPath: string) {
+  try {
+    return await transcribe(audioPath);
+  } catch (error) {
+    if (isTranscriptionError(error)) {
+      // TypeScript knows this is a TranscriptionError
+      return {
+        success: false,
+        partialResults: error.transcripts,
+        failureCount: error.failures.length
+      };
+    }
+    
+    // Other error type
+    throw error;
+  }
+}
+```
+
+</CodeGroup>
+
+## Error message format
+
+The error message follows this pattern:
+
+```text
+Failed to transcribe N chunk(s)
+```
+
+Where `N` is the number of chunks that failed transcription.
+
+## When errors are thrown
+
+`TranscriptionError` is thrown when:
+
+1. One or more audio chunks fail to transcribe after all retry attempts
+2. The Wit.ai API returns an error response
+3. Network errors occur during API calls
+4. Invalid audio format prevents transcription
+
+<Note>
+  Even if only one chunk out of many fails, a `TranscriptionError` will be thrown. However, you can access all successfully transcribed segments via the `transcripts` property.
+</Note>
+
+## Best practices
+
+<CardGroup cols={2}>
+
+<Card title="Always check for partial results" icon="list-check">
+  Even when transcription fails, you may have successfully transcribed most of the audio. Always check `error.transcripts`.
+</Card>
+
+<Card title="Use resumeFailedTranscriptions" icon="rotate">
+  Instead of reprocessing the entire file, retry only the failed chunks using `resumeFailedTranscriptions()`.
+</Card>
+
+<Card title="Enable preventCleanup for debugging" icon="bug">
+  Set `preventCleanup: true` to inspect the audio chunks that failed transcription.
+</Card>
+
+<Card title="Configure retries" icon="arrows-rotate">
+  Set the `retries` option to automatically retry failed chunks before throwing an error.
+</Card>
+
+</CardGroup>
+
+## Related
+
+<CardGroup cols={2}>
+
+<Card title="Resume failed transcriptions" icon="rotate" href="/api/resume-failed-transcriptions">
+  Retry only the failed chunks
+</Card>
+
+<Card title="Error handling guide" icon="book" href="/concepts/error-handling">
+  Complete error handling strategies
+</Card>
+
+<Card title="TranscribeOptions" icon="sliders" href="/api/types/transcribe-options">
+  Configuration including retries and preventCleanup
+</Card>
+
+<Card title="Segment type" icon="closed-captioning" href="/api/types/segment">
+  Structure of transcripts array
+</Card>
+
+</CardGroup>

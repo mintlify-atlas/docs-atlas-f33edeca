@@ -1,0 +1,302 @@
+---
+title: Preprocess options
+description: Configure audio preprocessing and noise reduction for better transcription accuracy
+---
+
+`PreprocessOptions` controls how Tafrigh preprocesses your audio before splitting and transcription. Proper preprocessing can dramatically improve transcription accuracy by reducing background noise, isolating voice frequencies, and enhancing speech clarity.
+
+## Why preprocessing matters
+
+Audio preprocessing improves transcription accuracy by:
+
+- **Reducing noise**: Removes background hiss, hum, and environmental sounds
+- **Isolating speech**: Filters out frequencies outside the human voice range
+- **Enhancing clarity**: Boosts mid-range frequencies where speech is most prominent
+- **Normalizing volume**: Ensures consistent audio levels across the file
+
+## Configuration
+
+You pass `preprocessOptions` to the `transcribe()` function:
+
+```typescript
+import { transcribe } from 'tafrigh';
+
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 1,
+      afftdnStop: 1,
+      afftdn_nf: -25,
+      dialogueEnhance: true,
+      lowpass: 1,
+      highpass: 200,
+    },
+  },
+});
+```
+
+## Properties
+
+<ParamField path="noiseReduction" type="object | null">
+  Controls noise reduction and audio filtering. Set to `null` to skip preprocessing entirely.
+  
+  <Note>
+    All individual filter properties can be set to `null` to omit that specific filter while keeping others active.
+  </Note>
+  
+  <Expandable title="properties">
+    <ParamField path="highpass" type="number | null" default="300">
+      Frequency in Hz for the high-pass filter.
+      
+      Attenuates frequencies below this cutoff, removing low-frequency noise like rumble, hum, or wind. Human speech fundamental frequencies typically range from 85 Hz (male) to 255 Hz (female).
+      
+      Set to `null` to disable the high-pass filter entirely.
+      
+      **Typical values:**
+      - Male voices: `100` to `200` Hz
+      - Female voices: `150` to `300` Hz
+      - General use: `300` Hz (default)
+    </ParamField>
+    
+    <ParamField path="lowpass" type="number | null" default="3000">
+      Frequency in Hz for the low-pass filter.
+      
+      Allows frequencies below this cutoff while attenuating higher frequencies. Removes high-frequency noise like hiss or electronic interference. Speech intelligibility frequencies are typically below 4000 Hz.
+      
+      Set to `null` to disable the low-pass filter entirely.
+      
+      **Typical values:**
+      - Telephone quality: `3400` Hz
+      - General speech: `3000` Hz (default)
+      - High fidelity: `4000` to `5000` Hz
+    </ParamField>
+    
+    <ParamField path="afftdnStart" type="number | null" default="0">
+      Time in seconds to begin FFT-based noise reduction.
+      
+      This marks the start of the noise profile sampling period. The denoiser analyzes this portion of audio to learn what "noise" sounds like. Must be used together with `afftdnStop`.
+      
+      Set to `null` to disable FFT-based denoising entirely.
+      
+      <Warning>
+        The audio between `afftdnStart` and `afftdnStop` should contain only noise, no speech. Choose a segment with background noise only.
+      </Warning>
+    </ParamField>
+    
+    <ParamField path="afftdnStop" type="number | null" default="1.5">
+      Time in seconds to end FFT-based noise reduction sampling.
+      
+      This marks the end of the noise profile sampling period. The denoiser uses the audio between `afftdnStart` and `afftdnStop` to build a noise profile. Must be used together with `afftdnStart`.
+      
+      Set to `null` to disable FFT-based denoising entirely.
+    </ParamField>
+    
+    <ParamField path="afftdn_nf" type="number | null" default="-20">
+      Noise floor parameter in dB for FFT-based denoising.
+      
+      Controls the threshold for what the denoiser considers "noise." Lower values (more negative) are more aggressive at removing noise but may affect speech quality.
+      
+      Set to `null` to disable FFT-based denoising entirely.
+      
+      **Typical values:**
+      - Light noise reduction: `-15` to `-10` dB
+      - Moderate noise reduction: `-20` to `-25` dB (default: `-20` dB)
+      - Aggressive noise reduction: `-30` to `-40` dB
+    </ParamField>
+    
+    <ParamField path="dialogueEnhance" type="boolean" default="true">
+      Enable dialogue enhancement to boost speech clarity.
+      
+      Enhances mid-range frequencies (typically 1-4 kHz) where human speech is most prominent. Makes dialogue easier to understand and improves transcription accuracy.
+      
+      Set to `false` to disable dialogue enhancement.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Examples
+
+### Disable preprocessing completely
+
+Skip all preprocessing when your audio is already clean:
+
+```typescript
+const transcript = await transcribe('clean-audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: null,
+  },
+});
+```
+
+### Light noise reduction
+
+For moderately clean recordings:
+
+```typescript
+const transcript = await transcribe('podcast.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 200,
+      lowpass: 3500,
+      afftdnStart: 0,
+      afftdnStop: 0.5,
+      afftdn_nf: -15,
+      dialogueEnhance: true,
+    },
+  },
+});
+```
+
+### Aggressive noise reduction
+
+For noisy environments or low-quality recordings:
+
+```typescript
+const transcript = await transcribe('noisy-recording.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 250,
+      lowpass: 3000,
+      afftdnStart: 0.5,
+      afftdnStop: 2.5,
+      afftdn_nf: -35,
+      dialogueEnhance: true,
+    },
+  },
+});
+```
+
+### Male voice optimization
+
+Optimized for lower-pitched male voices:
+
+```typescript
+const transcript = await transcribe('male-speaker.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 100,  // Lower to preserve male fundamentals
+      lowpass: 3000,
+      afftdnStart: 0,
+      afftdnStop: 1,
+      afftdn_nf: -20,
+      dialogueEnhance: true,
+    },
+  },
+});
+```
+
+### Female voice optimization
+
+Optimized for higher-pitched female voices:
+
+```typescript
+const transcript = await transcribe('female-speaker.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 200,  // Higher to remove more low-frequency noise
+      lowpass: 4000,  // Higher to preserve more harmonics
+      afftdnStart: 0,
+      afftdnStop: 1,
+      afftdn_nf: -20,
+      dialogueEnhance: true,
+    },
+  },
+});
+```
+
+### Selective filtering
+
+Use only specific filters by setting others to `null`:
+
+```typescript
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 300,
+      lowpass: null,           // Disable low-pass filter
+      afftdnStart: null,       // Disable FFT denoising
+      afftdnStop: null,
+      afftdn_nf: null,
+      dialogueEnhance: true,
+    },
+  },
+});
+```
+
+## Preprocessing callbacks
+
+Monitor preprocessing progress with callbacks:
+
+```typescript
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      // ... your settings
+    },
+  },
+  callbacks: {
+    onPreprocessingStarted: async (filePath) => {
+      console.log(`Starting preprocessing: ${filePath}`);
+    },
+    onPreprocessingProgress: async (percent) => {
+      console.log(`Preprocessing: ${percent}% complete`);
+    },
+    onPreprocessingFinished: async (filePath) => {
+      console.log(`Finished preprocessing: ${filePath}`);
+    },
+  },
+});
+```
+
+## Finding the right noise sample
+
+For FFT-based denoising (`afftdnStart`, `afftdnStop`, `afftdn_nf`), you need a portion of your audio that contains only background noise:
+
+1. **Listen to your audio** and find a segment with no speech
+2. **Note the timestamp** where noise-only audio begins
+3. **Set the duration** to capture 0.5-3 seconds of noise
+4. **Configure the parameters**:
+
+```typescript
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 5.0,    // Noise sample starts at 5 seconds
+      afftdnStop: 7.0,     // Noise sample ends at 7 seconds
+      afftdn_nf: -25,      // Moderate noise reduction
+      // ... other settings
+    },
+  },
+});
+```
+
+<Tip>
+  If your audio has no clean noise-only segments, set `afftdnStart`, `afftdnStop`, and `afftdn_nf` to `null` and rely on the highpass/lowpass filters instead.
+</Tip>
+
+## Understanding filter interactions
+
+Preprocessing filters are applied in sequence:
+
+1. **High-pass filter**: Removes low frequencies (rumble, hum)
+2. **Low-pass filter**: Removes high frequencies (hiss, artifacts)
+3. **FFT denoising**: Learns and removes noise profile
+4. **Dialogue enhancement**: Boosts speech frequencies
+5. **Normalization**: Ensures consistent volume levels
+
+Each filter builds on the previous one to progressively improve audio quality.
+
+<Warning>
+  Over-aggressive filtering can remove important speech information. Start with default values and adjust incrementally based on transcription results.
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Noise reduction" icon="volume-xmark" href="/api/config/noise-reduction">
+    Deep dive into noise reduction options
+  </Card>
+  <Card title="Split options" icon="scissors" href="/api/config/split-options">
+    Configure audio chunk splitting
+  </Card>
+</CardGroup>

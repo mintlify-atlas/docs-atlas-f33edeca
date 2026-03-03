@@ -1,0 +1,332 @@
+---
+title: Managing concurrency and parallel processing
+description: Optimize transcription speed by processing multiple audio chunks in parallel
+---
+
+Tafrigh can dramatically reduce transcription time by processing multiple audio chunks in parallel. This guide explains how to configure and optimize concurrent processing.
+
+## How concurrency works
+
+Tafrigh splits your audio file into chunks and transcribes each chunk independently. By default, it processes chunks sequentially, but you can enable parallel processing to transcribe multiple chunks simultaneously.
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+// Initialize with multiple API keys for concurrency
+init({ apiKeys: ['key1', 'key2', 'key3'] });
+
+const options = {
+  concurrency: 3,  // Process up to 3 chunks in parallel
+};
+
+const transcript = await transcribe('large-file.mp3', options);
+```
+
+## API key rotation
+
+Tafrigh automatically rotates through your API keys to maximize throughput without hitting rate limits.
+
+```javascript
+init({ 
+  apiKeys: [
+    'wit-ai-key-1',
+    'wit-ai-key-2', 
+    'wit-ai-key-3'
+  ]
+});
+
+// With 3 keys and concurrency: 3, Tafrigh can make 3 simultaneous requests
+```
+
+<Note>
+Each concurrent request uses a different API key. The maximum effective concurrency is limited by the number of API keys you provide.
+</Note>
+
+### Key requirements
+
+All API keys must be configured for the same language:
+
+<Warning>
+If you mix API keys for different languages (e.g., one for English, one for Arabic), the transcription results will be inconsistent and inaccurate. Create all keys from Wit.ai apps configured for the same language.
+</Warning>
+
+## Setting concurrency level
+
+The `concurrency` option controls the maximum number of parallel transcription workers:
+
+```javascript
+const options = {
+  concurrency: 5,  // At most 5 parallel requests
+};
+```
+
+**Default:** The number of API keys provided
+
+### Determining optimal concurrency
+
+The actual concurrency level is calculated as:
+
+```javascript
+const actualConcurrency = Math.min(
+  options.concurrency || apiKeys.length,
+  apiKeys.length
+);
+```
+
+This means:
+- With 3 API keys and `concurrency: 5`, you get 3 parallel workers (limited by keys)
+- With 5 API keys and `concurrency: 3`, you get 3 parallel workers (limited by setting)
+- With 3 API keys and no `concurrency` option, you get 3 parallel workers (default)
+
+## Performance considerations
+
+### CPU utilization
+
+Higher concurrency increases CPU usage for audio processing. Monitor your system resources:
+
+```javascript
+// For resource-constrained environments
+const options = {
+  concurrency: 2,  // Limit concurrent processing
+};
+
+// For powerful servers
+const options = {
+  concurrency: 10,  // Maximum parallelism
+};
+```
+
+### Network bandwidth
+
+Each concurrent worker uploads audio chunks to the Wit.ai API. Ensure your network can handle multiple simultaneous uploads:
+
+- **Low bandwidth:** `concurrency: 2-3`
+- **Medium bandwidth:** `concurrency: 3-5`
+- **High bandwidth:** `concurrency: 5-10` or higher
+
+### API rate limits
+
+Wit.ai imposes rate limits per API key. Using multiple keys helps distribute load:
+
+```javascript
+// 6 keys allow higher sustained throughput
+init({ 
+  apiKeys: [
+    'key1', 'key2', 'key3', 
+    'key4', 'key5', 'key6'
+  ]
+});
+
+const options = {
+  concurrency: 6,
+};
+```
+
+## Single-threaded processing
+
+Force sequential processing by setting `concurrency: 1`:
+
+```javascript
+const options = {
+  concurrency: 1,  // Process one chunk at a time
+};
+```
+
+Single-threaded mode is automatically used when:
+- `concurrency: 1` is explicitly set
+- Only one chunk needs to be processed
+- Only one API key is available
+
+## Real-world examples
+
+### Small files (< 5 minutes)
+
+```javascript
+// One or two keys are sufficient
+init({ apiKeys: ['key1', 'key2'] });
+
+const options = {
+  concurrency: 2,
+  splitOptions: {
+    chunkDuration: 60,
+  },
+};
+```
+
+### Medium files (5-30 minutes)
+
+```javascript
+// Use 3-5 keys for faster processing
+init({ apiKeys: ['key1', 'key2', 'key3', 'key4', 'key5'] });
+
+const options = {
+  concurrency: 5,
+  splitOptions: {
+    chunkDuration: 60,
+  },
+};
+```
+
+### Large files (> 30 minutes)
+
+```javascript
+// Maximize concurrency with many keys
+init({ 
+  apiKeys: [
+    'key1', 'key2', 'key3', 'key4', 'key5',
+    'key6', 'key7', 'key8', 'key9', 'key10'
+  ]
+});
+
+const options = {
+  concurrency: 10,
+  splitOptions: {
+    chunkDuration: 90,  // Longer chunks reduce total chunk count
+  },
+};
+```
+
+## Monitoring concurrent progress
+
+Track progress across parallel workers using callbacks:
+
+```javascript
+let completed = 0;
+let total = 0;
+
+const options = {
+  concurrency: 5,
+  callbacks: {
+    onTranscriptionStarted: async (totalChunks) => {
+      total = totalChunks;
+      console.log(`Starting transcription of ${totalChunks} chunks`);
+    },
+    onTranscriptionProgress: async (chunkIndex) => {
+      completed++;
+      console.log(`Progress: ${completed}/${total} chunks complete`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      console.log(`Finished! Transcribed ${transcripts.length} segments`);
+    },
+  },
+};
+
+const transcript = await transcribe('audio.mp3', options);
+```
+
+<Note>
+`onTranscriptionProgress` is called each time a chunk completes, regardless of which worker processed it. The callbacks are thread-safe.
+</Note>
+
+## Environment configuration
+
+Set API keys via environment variable for production deployments:
+
+```bash
+# .env file
+WIT_AI_API_KEYS="key1 key2 key3 key4 key5"
+```
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+const apiKeys = process.env.WIT_AI_API_KEYS?.split(' ') || [];
+init({ apiKeys });
+
+const options = {
+  concurrency: apiKeys.length,  // Use all available keys
+};
+```
+
+## Debugging concurrency issues
+
+Enable logging to see which API key is used for each request:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+init({ 
+  apiKeys: ['key1', 'key2', 'key3'],
+  logger: console  // Log all operations
+});
+
+const options = {
+  concurrency: 3,
+};
+
+const transcript = await transcribe('audio.mp3', options);
+// Console output shows which key processes each chunk
+```
+
+See the [Logging guide](/guides/logging) for more details on logging configuration.
+
+## Impact of chunk duration
+
+Shorter chunks create more opportunities for parallelism:
+
+<CodeGroup>
+```javascript Long chunks (limited parallelism)
+const options = {
+  concurrency: 5,
+  splitOptions: {
+    chunkDuration: 180,  // 180-second chunks
+  },
+};
+// A 15-minute file creates ~5 chunks
+// All 5 workers stay busy, then idle
+```
+
+```javascript Short chunks (sustained parallelism)
+const options = {
+  concurrency: 5,
+  splitOptions: {
+    chunkDuration: 45,  // 45-second chunks  
+  },
+};
+// A 15-minute file creates ~20 chunks
+// Workers continuously process until all chunks complete
+```
+</CodeGroup>
+
+**Trade-off:** More chunks means more API requests and slightly less granular timestamps at chunk boundaries.
+
+## Handling failures in concurrent mode
+
+When processing fails for some chunks, the `TranscriptionError` includes both successful and failed results:
+
+```javascript
+import { TranscriptionError, resumeFailedTranscriptions } from 'tafrigh';
+
+try {
+  const transcript = await transcribe('audio.mp3', { concurrency: 5 });
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.log(`${error.transcripts.length} chunks succeeded`);
+    console.log(`${error.failures.length} chunks failed`);
+    
+    // Retry failed chunks with different concurrency
+    const result = await resumeFailedTranscriptions(error, { 
+      concurrency: 2  // Lower concurrency for retry
+    });
+  }
+}
+```
+
+See [Resuming failed transcriptions](/guides/resuming-failed-transcriptions) for complete error handling patterns.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Resuming failures" icon="rotate-right" href="/guides/resuming-failed-transcriptions">
+    Handle partial failures and retry logic
+  </Card>
+  <Card title="Advanced configuration" icon="sliders" href="/guides/advanced-configuration">
+    Optimize chunk duration and retries
+  </Card>
+  <Card title="Logging" icon="file-lines" href="/guides/logging">
+    Monitor concurrent operations with custom loggers
+  </Card>
+  <Card title="Callbacks" icon="webhook" href="/api/types/callbacks">
+    Track progress across parallel workers
+  </Card>
+</CardGroup>

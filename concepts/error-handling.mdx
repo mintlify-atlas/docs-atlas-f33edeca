@@ -1,0 +1,369 @@
+---
+title: Error handling and recovery
+description: Learn how to handle transcription failures and resume partial work with TranscriptionError
+---
+
+Tafrigh provides robust error handling with partial progress preservation. When chunks fail, you can inspect the error, retry specific failures, and recover completed work.
+
+## TranscriptionError class
+
+When one or more chunks fail after all retry attempts, the `transcribe` function throws a `TranscriptionError` (see `/home/daytona/workspace/source/src/errors.ts:18-43`):
+
+```typescript
+export class TranscriptionError extends Error {
+    public readonly chunkFiles: AudioChunk[];
+    public readonly failures: FailedTranscription[];
+    public readonly outputDir?: string;
+    public readonly transcripts: Segment[];
+    
+    constructor(message: string, options: TranscriptionErrorOptions) {
+        super(message);
+        this.name = 'TranscriptionError';
+        this.chunkFiles = options.chunkFiles || [];
+        this.failures = options.failures;
+        this.outputDir = options.outputDir;
+        this.transcripts = options.transcripts;
+    }
+    
+    get failedChunks(): AudioChunk[] {
+        return this.failures.map((failure) => failure.chunk);
+    }
+    
+    get hasFailures(): boolean {
+        return this.failures.length > 0;
+    }
+}
+```
+
+### Error properties
+
+<ParamField path="message" type="string">
+  Human-readable error message, e.g., `"Failed to transcribe 3 chunk(s)"`
+</ParamField>
+
+<ParamField path="transcripts" type="Segment[]">
+  All successfully transcribed segments before the failure. These are already sorted by timestamp and ready to use.
+</ParamField>
+
+<ParamField path="failures" type="FailedTranscription[]">
+  Detailed information about each failed chunk:
+  ```typescript
+  type FailedTranscription = {
+      chunk: AudioChunk;  // The chunk file and time range
+      error: unknown;     // The original error that caused failure
+      index: number;      // Original position in chunk array
+  };
+  ```
+</ParamField>
+
+<ParamField path="chunkFiles" type="AudioChunk[]">
+  Complete list of all chunks (both successful and failed). Useful for calculating progress percentages.
+</ParamField>
+
+<ParamField path="outputDir" type="string | undefined">
+  Path to the temporary directory containing chunk files. This directory is **not** automatically deleted when a `TranscriptionError` is thrown, allowing you to retry failed chunks.
+</ParamField>
+
+### Convenience getters
+
+```typescript
+error.failedChunks;   // Returns just the AudioChunk objects (without error details)
+error.hasFailures;    // Returns true if failures.length > 0
+```
+
+## When errors are thrown
+
+The `transcribe` function checks for failures after all chunks complete (see `/home/daytona/workspace/source/src/index.ts:91-99`):
+
+```typescript
+const { failures, transcripts } = await transcribeAudioChunks(chunkFiles, {
+    callbacks: options?.callbacks,
+    concurrency: options?.concurrency,
+    retries: options?.retries,
+});
+
+if (failures.length > 0) {
+    shouldCleanup = false;  // Preserve files for retry
+    throw new TranscriptionError(
+        `Failed to transcribe ${failures.length} chunk(s)`,
+        { chunkFiles, failures, outputDir, transcripts }
+    );
+}
+```
+
+<Warning>
+When a `TranscriptionError` is thrown, `shouldCleanup` is set to `false` to preserve the temporary directory. **You are responsible** for cleaning it up after handling the error.
+</Warning>
+
+## Basic error handling
+
+Catch the error and inspect partial results:
+
+```typescript
+import { TranscriptionError, transcribe } from 'tafrigh';
+import { promises as fs } from 'node:fs';
+
+try {
+    const transcript = await transcribe('audio.mp3');
+    console.log('Success:', transcript);
+} catch (error) {
+    if (error instanceof TranscriptionError) {
+        console.error(`Failed chunks: ${error.failures.length}`);
+        console.log(`Successful chunks: ${error.transcripts.length}`);
+        console.log(`Temp directory: ${error.outputDir}`);
+        
+        // Log each failure
+        error.failures.forEach(({ chunk, error: chunkError, index }) => {
+            console.error(`Chunk ${index} (${chunk.filename}): ${chunkError}`);
+        });
+        
+        // Clean up when done inspecting
+        if (error.outputDir) {
+            await fs.rm(error.outputDir, { recursive: true, force: true });
+        }
+    } else {
+        throw error;  // Re-throw non-transcription errors
+    }
+}
+```
+
+## Resuming failed transcriptions
+
+The `resumeFailedTranscriptions` function retries only the failed chunks and merges results (see `/home/daytona/workspace/source/src/transcriber.ts:206-224`):
+
+```typescript
+export const resumeFailedTranscriptions = async (
+    error: Pick<TranscriptionError, 'failures' | 'transcripts'>,
+    options?: ResumeOptions
+): Promise<TranscribeAudioChunksResult> => {
+    // Extract and sort failed chunks by original index
+    const failedChunks = error.failures
+        .slice()
+        .sort((a, b) => a.index - b.index)
+        .map((failure) => failure.chunk);
+    
+    // Retry only the failed chunks
+    const { failures, transcripts } = await transcribeAudioChunks(
+        failedChunks, 
+        options
+    );
+    
+    // Combine with previous successful transcripts
+    const combinedTranscripts = [...error.transcripts, ...transcripts];
+    combinedTranscripts.sort((a: Segment, b: Segment) => a.start - b.start);
+    
+    return { failures, transcripts: combinedTranscripts };
+};
+```
+
+### Resume example
+
+```typescript
+import { 
+    TranscriptionError, 
+    transcribe, 
+    resumeFailedTranscriptions 
+} from 'tafrigh';
+import { promises as fs } from 'node:fs';
+
+try {
+    const transcript = await transcribe('large-file.mp3');
+    console.log('All chunks succeeded:', transcript.length);
+} catch (error) {
+    if (error instanceof TranscriptionError) {
+        console.log(`Initial attempt: ${error.transcripts.length} succeeded, ${error.failures.length} failed`);
+        
+        // Retry with increased attempts and lower concurrency
+        const { failures, transcripts } = await resumeFailedTranscriptions(
+            error,
+            { 
+                retries: 10,        // More aggressive retries
+                concurrency: 1      // Sequential processing for stability
+            }
+        );
+        
+        if (failures.length === 0) {
+            console.log('Retry successful! Total segments:', transcripts.length);
+            
+            // Clean up temporary directory
+            if (error.outputDir) {
+                await fs.rm(error.outputDir, { recursive: true });
+            }
+        } else {
+            console.error(`Still have ${failures.length} failures after retry`);
+            // Handle persistent failures (e.g., save partial results)
+        }
+    }
+}
+```
+
+<Tip>
+You can call `resumeFailedTranscriptions` multiple times with different strategies. Each call only retries the remaining failures.
+</Tip>
+
+## Retry strategy with exponential backoff
+
+Individual chunk requests use exponential backoff before giving up (see `/home/daytona/workspace/source/src/utils/retry.ts:32-52`):
+
+```typescript
+export const exponentialBackoffRetry = async <T>(
+    fn: () => Promise<T>,
+    retries = MAX_RETRIES,  // Default: 5
+    baseDelay = BASE_DELAY_MS  // Default: 1000ms
+): Promise<T> => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (attempt < retries) {
+                const delay = baseDelay * 2 ** (attempt - 1);
+                logger.warn(`Attempt ${attempt} failed. Retrying in ${delay}ms...`);
+                await setTimeout(delay);
+            } else {
+                logger.error(`All ${retries} attempts failed.`);
+                throw error;
+            }
+        }
+    }
+};
+```
+
+### Retry timing
+
+With default settings (`retries: 5`, `baseDelay: 1000`):
+
+| Attempt | Delay Before Retry | Total Time Elapsed |
+|---------|-------------------|--------------------|
+| 1       | 0ms               | 0s                 |
+| 2       | 1000ms (1s)       | ~1s                |
+| 3       | 2000ms (2s)       | ~3s                |
+| 4       | 4000ms (4s)       | ~7s                |
+| 5       | 8000ms (8s)       | ~15s               |
+
+If all 5 attempts fail, the chunk is marked as failed and added to `TranscriptionError.failures`.
+
+## Handling empty transcripts
+
+Silent chunks (those with no detectable speech) return `null` and are skipped (see `/home/daytona/workspace/source/src/transcriber.ts:44-48`):
+
+```typescript
+if (response.text?.trim()) {
+    return mapWitResponseToSegment(response, chunk.range);
+}
+
+return null;
+```
+
+This is **not** treated as an error. The chunk is simply excluded from the final results.
+
+## Debugging failures
+
+### Preserve temporary files
+
+Set `preventCleanup: true` to inspect chunks manually:
+
+```typescript
+try {
+    const transcript = await transcribe('audio.mp3', { 
+        preventCleanup: true 
+    });
+} catch (error) {
+    if (error instanceof TranscriptionError) {
+        console.log('Inspect chunks at:', error.outputDir);
+        // Files remain at /tmp/tafrigh* for manual review
+    }
+}
+```
+
+### Log chunk processing
+
+Use callbacks to track which chunks fail:
+
+```typescript
+const failedIndices = new Set();
+
+try {
+    await transcribe('audio.mp3', {
+        callbacks: {
+            onTranscriptionProgress: (index) => {
+                console.log(`Chunk ${index} completed`);
+            }
+        }
+    });
+} catch (error) {
+    if (error instanceof TranscriptionError) {
+        error.failures.forEach(({ index, chunk, error: err }) => {
+            console.error(`Chunk ${index} failed:`, {
+                file: chunk.filename,
+                range: chunk.range,
+                error: err
+            });
+        });
+    }
+}
+```
+
+## Common error scenarios
+
+<AccordionGroup>
+  <Accordion title="Network timeout">
+    **Cause:** Wit.ai API is slow or unreachable.
+    
+    **Solution:** Increase `retries` to 7-10 and reduce `concurrency` to 1-2:
+    ```typescript
+    await transcribe('audio.mp3', { retries: 10, concurrency: 1 });
+    ```
+  </Accordion>
+  
+  <Accordion title="Invalid API key">
+    **Cause:** One or more keys in the rotation are invalid.
+    
+    **Solution:** Check which key caused the error and remove it:
+    ```typescript
+    if (error instanceof TranscriptionError) {
+        error.failures.forEach(({ error: err }) => {
+            if (err.message.includes('Invalid API key')) {
+                console.error('Remove invalid key from rotation');
+            }
+        });
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Audio format not supported">
+    **Cause:** Wit.ai rejected the audio encoding.
+    
+    **Solution:** Verify preprocessing created valid MP3 files. Set `preventCleanup: true` and inspect `error.outputDir`.
+  </Accordion>
+  
+  <Accordion title="Partial results needed">
+    **Scenario:** You need the successful transcripts even if some chunks failed.
+    
+    **Solution:** Use `error.transcripts` directly:
+    ```typescript
+    } catch (error) {
+        if (error instanceof TranscriptionError) {
+            // Use partial results
+            saveToDatabase(error.transcripts);
+            
+            // Schedule retry for failures later
+            scheduleRetry(error.failures);
+        }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Best practices
+
+<Note>
+Always check `error instanceof TranscriptionError` before accessing properties like `transcripts` or `failures`. Other errors (e.g., file not found) won't have these fields.
+</Note>
+
+<Info>
+The `outputDir` property is `undefined` if the error occurs before chunk creation (e.g., during validation). Always check `if (error.outputDir)` before cleanup.
+</Info>
+
+<Tip>
+For production systems, implement a dead-letter queue for chunks that fail after multiple retries. Log the chunk metadata to `error.failures` for offline analysis.
+</Tip>

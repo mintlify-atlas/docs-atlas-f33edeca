@@ -1,0 +1,87 @@
+---
+title: Introduction
+description: A Node.js library for transcribing audio and video to text using Wit.ai
+---
+
+# Welcome to Tafrigh
+
+Tafrigh is a Node.js audio processing library that simplifies the process of transcribing audio files using Wit.ai. The library includes built-in support for splitting audio into chunks, noise reduction, and managing multiple API keys to optimize transcription workflows for larger files.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Audio splitting" icon="scissors">
+    Automatically splits audio files into manageable chunks based on silence detection, ideal for services with file or duration size limits
+  </Card>
+  
+  <Card title="Noise reduction" icon="volume-xmark">
+    Apply configurable noise reduction and dialogue enhancement to improve transcription accuracy
+  </Card>
+  
+  <Card title="Multiple input formats" icon="file-audio">
+    Supports streams, remote media file URLs, or local media file paths in any format supported by FFmpeg
+  </Card>
+  
+  <Card title="API key rotation" icon="rotate">
+    Cycle through multiple Wit.ai API keys to prevent rate limits and enable higher concurrency
+  </Card>
+  
+  <Card title="Smart concurrency" icon="gauge-high">
+    Control worker concurrency and resume failed jobs with built-in retry logic and exponential backoff
+  </Card>
+  
+  <Card title="Rich error reporting" icon="circle-exclamation">
+    Failures capture failed chunks, successful transcripts, and working directory for easy debugging and resumption
+  </Card>
+</CardGroup>
+
+## How it works
+
+The `transcribe` function provides an end-to-end transcription pipeline:
+
+1. **Preprocess** - Formats media, applies noise reduction and dialogue enhancement
+2. **Split** - Splits audio into chunks based on silence detection to avoid word breaks
+3. **Transcribe** - Sends chunks to Wit.ai API with smart key rotation and concurrency
+4. **Merge** - Combines results into typed segment objects with timestamps
+
+## Example output
+
+```json
+[
+  {
+    "text": "Hello world",
+    "start": 0,
+    "end": 2.5,
+    "confidence": 0.95,
+    "tokens": [
+      { "text": "Hello", "start": 0, "end": 1.2, "confidence": 0.98 },
+      { "text": "world", "start": 1.3, "end": 2.5, "confidence": 0.92 }
+    ]
+  },
+  {
+    "text": "This is a test",
+    "start": 2.7,
+    "end": 4.2
+  }
+]
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Tafrigh using your preferred package manager
+  </Card>
+  
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Get your first transcription working in minutes
+  </Card>
+  
+  <Card title="Guides" icon="book" href="/guides/basic-usage">
+    Learn advanced features like noise reduction and error handling
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api/init">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

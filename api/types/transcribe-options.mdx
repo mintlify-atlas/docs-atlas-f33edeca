@@ -1,0 +1,149 @@
+---
+title: 'TranscribeOptions'
+description: 'Configuration options for the transcribe function'
+---
+
+## Overview
+
+The `TranscribeOptions` type defines all configuration options you can pass to the `transcribe()` function to customize the transcription process. All properties are optional, allowing you to choose only the options you need.
+
+## Type definition
+
+```typescript
+type TranscribeOptions = {
+    callbacks?: Callbacks;
+    concurrency?: number;
+    preprocessOptions?: PreprocessOptions;
+    preventCleanup?: boolean;
+    retries?: number;
+    splitOptions?: SplitOptions;
+};
+```
+
+## Properties
+
+<ResponseField name="callbacks" type="Callbacks">
+  Callbacks for monitoring progress and responding to events during transcription.
+  
+  See the [Callbacks](/api/types/callbacks) reference for details on available callback functions.
+</ResponseField>
+
+<ResponseField name="concurrency" type="number">
+  Maximum number of concurrent transcription operations.
+  
+  <Note>
+    Concurrency is limited by the number of available API keys. If you specify a concurrency higher than your number of API keys, it will be automatically reduced to match the number of keys.
+  </Note>
+  
+  **Default:** `1`
+</ResponseField>
+
+<ResponseField name="preprocessOptions" type="PreprocessOptions">
+  Options for audio preprocessing including noise reduction, filtering, and normalization.
+  
+  See the [PreprocessOptions](/api/config/preprocess-options) reference for available preprocessing options.
+</ResponseField>
+
+<ResponseField name="preventCleanup" type="boolean">
+  If `true`, temporary processing directories won't be deleted after transcription completes.
+  
+  This is useful for debugging when you need to inspect intermediate files like audio chunks or preprocessed audio.
+  
+  **Default:** `false`
+</ResponseField>
+
+<ResponseField name="retries" type="number">
+  Number of retry attempts for failed transcription requests.
+  
+  The library uses exponential backoff between retries to avoid overwhelming the API.
+  
+  **Default:** `0` (no retries)
+</ResponseField>
+
+<ResponseField name="splitOptions" type="SplitOptions">
+  Options for splitting audio into chunks based on silence detection.
+  
+  See the [SplitOptions](/api/config/split-options) reference for configuration details.
+</ResponseField>
+
+## Usage example
+
+<CodeGroup>
+
+```typescript Basic configuration
+import { transcribe } from 'tafrigh';
+
+const transcript = await transcribe('audio.mp3', {
+  concurrency: 3,
+  retries: 2
+});
+```
+
+```typescript With callbacks
+import { transcribe } from 'tafrigh';
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    onTranscriptionStarted: async (totalChunks) => {
+      console.log(`Starting transcription of ${totalChunks} chunks`);
+    },
+    onTranscriptionProgress: (chunkIndex) => {
+      console.log(`Completed chunk ${chunkIndex}`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      console.log(`Transcription complete: ${transcripts.length} segments`);
+    }
+  }
+});
+```
+
+```typescript Full configuration
+import { transcribe } from 'tafrigh';
+
+const transcript = await transcribe('audio.mp3', {
+  concurrency: 4,
+  retries: 3,
+  preventCleanup: false,
+  callbacks: {
+    onTranscriptionProgress: (chunkIndex) => {
+      console.log(`Chunk ${chunkIndex} complete`);
+    }
+  },
+  preprocessOptions: {
+    noiseReduction: {
+      enabled: true,
+      strength: 0.5
+    }
+  },
+  splitOptions: {
+    chunkDuration: 60,
+    silenceDetection: {
+      silenceThreshold: -30
+    }
+  }
+});
+```
+
+</CodeGroup>
+
+## Related
+
+<CardGroup cols={2}>
+
+<Card title="transcribe" icon="microphone" href="/api/transcribe">
+  Main transcription function
+</Card>
+
+<Card title="Callbacks" icon="bell" href="/api/types/callbacks">
+  Callback interface reference
+</Card>
+
+<Card title="SplitOptions" icon="scissors" href="/api/config/split-options">
+  Audio splitting configuration
+</Card>
+
+<Card title="PreprocessOptions" icon="waveform" href="/api/config/preprocess-options">
+  Audio preprocessing options
+</Card>
+
+</CardGroup>

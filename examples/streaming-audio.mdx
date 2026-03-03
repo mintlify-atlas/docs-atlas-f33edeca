@@ -1,0 +1,210 @@
+---
+title: Streaming audio
+description: Transcribe audio from streams using libraries like ytdl-core
+---
+
+## Working with streams
+
+Tafrigh accepts Node.js `Readable` streams as input, making it easy to transcribe audio from sources like YouTube videos without downloading them first.
+
+## Transcribing YouTube videos
+
+Use `ytdl-core` to stream audio directly from YouTube and pass it to Tafrigh for transcription:
+
+```typescript
+import ytdl from 'ytdl-core';
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const videoUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const audioStream = ytdl(videoUrl, {
+  quality: 'highestaudio',
+  filter: 'audioonly',
+});
+
+const transcript = await transcribe(audioStream);
+console.log(transcript);
+```
+
+<Note>
+The stream is automatically processed, chunked, and transcribed without creating temporary files in your project directory. All processing happens in the OS temporary folder.
+</Note>
+
+## Streaming from HTTP sources
+
+You can stream audio from any HTTP endpoint using Node.js built-in modules:
+
+```typescript
+import https from 'https';
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const audioUrl = 'https://example.com/podcast-episode.mp3';
+
+https.get(audioUrl, async (response) => {
+  const transcript = await transcribe(response);
+  console.log(transcript);
+});
+```
+
+## Streaming with custom options
+
+Combine streaming with custom transcription options for better control:
+
+```typescript
+import ytdl from 'ytdl-core';
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['key1', 'key2', 'key3'] });
+
+const videoUrl = 'https://www.youtube.com/watch?v=VIDEO_ID';
+const audioStream = ytdl(videoUrl, {
+  quality: 'highestaudio',
+  filter: 'audioonly',
+});
+
+const transcript = await transcribe(audioStream, {
+  concurrency: 3,
+  splitOptions: {
+    chunkDuration: 60,
+    silenceDetection: {
+      silenceThreshold: -30,
+      silenceDuration: 0.5,
+    },
+  },
+  preprocessOptions: {
+    noiseReduction: {
+      dialogueEnhance: true,
+      highpass: 200,
+      lowpass: 3000,
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+<Tip>
+Using multiple API keys with higher concurrency significantly speeds up transcription of longer videos.
+</Tip>
+
+## Progress tracking with streams
+
+Monitor the transcription progress when working with streams:
+
+```typescript
+import ytdl from 'ytdl-core';
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const videoUrl = 'https://www.youtube.com/watch?v=VIDEO_ID';
+const audioStream = ytdl(videoUrl, {
+  quality: 'highestaudio',
+  filter: 'audioonly',
+});
+
+const transcript = await transcribe(audioStream, {
+  callbacks: {
+    onPreprocessingStarted: async (filePath) => {
+      console.log('Starting preprocessing...');
+    },
+    onPreprocessingProgress: async (percent) => {
+      console.log(`Preprocessing: ${percent}%`);
+    },
+    onSplittingStarted: async (totalChunks) => {
+      console.log(`Splitting into ${totalChunks} chunks...`);
+    },
+    onTranscriptionStarted: async (totalChunks) => {
+      console.log(`Transcribing ${totalChunks} chunks...`);
+    },
+    onTranscriptionProgress: async (chunkIndex) => {
+      console.log(`Transcribed chunk ${chunkIndex}`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      console.log(`Complete! ${transcripts.length} segments transcribed`);
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+### Expected output
+
+```
+Starting preprocessing...
+Preprocessing: 25%
+Preprocessing: 50%
+Preprocessing: 75%
+Preprocessing: 100%
+Splitting into 12 chunks...
+Transcribing 12 chunks...
+Transcribed chunk 0
+Transcribed chunk 1
+Transcribed chunk 2
+...
+Complete! 12 segments transcribed
+```
+
+## Streaming from file system
+
+You can also create streams from local files when you need more control over the read process:
+
+```typescript
+import { createReadStream } from 'fs';
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const fileStream = createReadStream('large-audio-file.mp3', {
+  highWaterMark: 64 * 1024, // 64KB chunks
+});
+
+const transcript = await transcribe(fileStream);
+console.log(transcript);
+```
+
+<Note>
+When passing a file path directly to `transcribe()`, it's more efficient than creating a stream manually. Use streams when you need to pipe data from remote sources or when you need fine-grained control over the reading process.
+</Note>
+
+## Error handling with streams
+
+Handle stream errors gracefully to prevent crashes:
+
+```typescript
+import ytdl from 'ytdl-core';
+import { init, transcribe, TranscriptionError } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const videoUrl = 'https://www.youtube.com/watch?v=VIDEO_ID';
+
+try {
+  const audioStream = ytdl(videoUrl, {
+    quality: 'highestaudio',
+    filter: 'audioonly',
+  });
+
+  audioStream.on('error', (error) => {
+    console.error('Stream error:', error);
+  });
+
+  const transcript = await transcribe(audioStream);
+  console.log('Transcription successful:', transcript);
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.error('Transcription failed:', error.message);
+    console.log('Partial results:', error.transcripts);
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
+
+<Warning>
+Always add error handlers to your streams to catch network issues, invalid URLs, or access restrictions before they reach the transcription layer.
+</Warning>

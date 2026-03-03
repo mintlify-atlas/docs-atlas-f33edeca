@@ -1,0 +1,390 @@
+---
+title: Configuring custom loggers
+description: Control logging output by providing your own logger implementation
+---
+
+Tafrigh includes comprehensive logging capabilities to help you monitor transcription operations, debug issues, and track progress. By default, logging is disabled, but you can easily enable it with your preferred logging library.
+
+## Logger interface
+
+Tafrigh accepts any logger that implements the `Logger` interface:
+
+```typescript
+interface Logger {
+  debug?: (message: string, ...args: any[]) => void;
+  error?: (message: string, ...args: any[]) => void;
+  info?: (message: string, ...args: any[]) => void;
+  trace?: (message: string, ...args: any[]) => void;
+  warn?: (message: string, ...args: any[]) => void;
+}
+```
+
+All methods are optional, so you can provide a logger that only implements the levels you need.
+
+## Using the console logger
+
+The simplest way to enable logging is to use the built-in `console` object:
+
+```javascript
+import { init } from 'tafrigh';
+
+init({ 
+  apiKeys: ['your-wit-ai-key'],
+  logger: console 
+});
+```
+
+This logs all operations to stdout using standard console methods.
+
+## Using Pino
+
+[Pino](https://github.com/pinojs/pino) is a fast, low-overhead JSON logger:
+
+```javascript
+import pino from 'pino';
+import { init } from 'tafrigh';
+
+const logger = pino({ 
+  level: 'debug',
+  transport: {
+    target: 'pino-pretty',
+    options: { colorize: true }
+  }
+});
+
+init({ 
+  apiKeys: ['your-wit-ai-key'],
+  logger 
+});
+```
+
+## Using Winston
+
+[Winston](https://github.com/winstonjs/winston) is a popular multi-transport logger:
+
+```javascript
+import winston from 'winston';
+import { init } from 'tafrigh';
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'tafrigh.log' })
+  ]
+});
+
+init({ 
+  apiKeys: ['your-wit-ai-key'],
+  logger 
+});
+```
+
+## Custom logger implementation
+
+You can create a custom logger that integrates with your existing logging infrastructure:
+
+```javascript
+import { init } from 'tafrigh';
+
+const customLogger = {
+  info: (msg) => myLoggingService.log('INFO', msg),
+  debug: (msg) => myLoggingService.log('DEBUG', msg),
+  error: (msg) => myLoggingService.log('ERROR', msg),
+  warn: (msg) => myLoggingService.log('WARN', msg),
+  trace: (msg) => myLoggingService.log('TRACE', msg),
+};
+
+init({ 
+  apiKeys: ['your-wit-ai-key'],
+  logger: customLogger 
+});
+```
+
+## Partial logger implementation
+
+You only need to implement the log levels you want:
+
+```javascript
+const errorOnlyLogger = {
+  error: (msg) => console.error('[TAFRIGH ERROR]', msg),
+};
+
+init({ 
+  apiKeys: ['your-wit-ai-key'],
+  logger: errorOnlyLogger 
+});
+```
+
+Unimplemented methods are silently ignored.
+
+## Log levels and what they capture
+
+### trace
+
+Most verbose level, includes detailed operation information:
+
+- Individual transcript results for each chunk
+- Internal state transitions
+
+### debug
+
+Development and troubleshooting information:
+
+- Temporary directory paths
+- Generated chunk file lists
+- Concurrency mode selection
+- Worker thread counts
+
+### info
+
+General operational information:
+
+- Transcription start with parameters
+- API key usage (masked for security)
+- Preprocessing and splitting status
+- Cleanup operations
+
+### warn
+
+Potential issues that don't prevent operation:
+
+- Empty transcription results
+- Skipped chunks
+- Retryable failures
+
+### error
+
+Failures that prevent successful completion:
+
+- Failed chunk transcriptions
+- API errors
+- File system errors
+
+## Example log output
+
+Here's what you'll see with `console` logging enabled:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-key'], logger: console });
+
+await transcribe('audio.mp3', { concurrency: 2 });
+```
+
+Output:
+
+```
+[INFO] transcribe audio.mp3 (string) with options: {"concurrency":2}
+[DEBUG] Using /tmp/tafrigh-abc123
+[INFO] Preprocessing /tmp/tafrigh-abc123/1234567890.mp3
+[INFO] Calling dictation for chunk-0.mp3 with key abc***d***xyz
+[INFO] Calling dictation for chunk-1.mp3 with key def***g***uvw
+[TRACE] Transcript received for chunk: chunk-0.mp3
+[TRACE] Transcript received for chunk: chunk-1.mp3
+[INFO] Cleaning up /tmp/tafrigh-abc123
+```
+
+## API key masking
+
+Tafrigh automatically masks API keys in log output for security:
+
+```javascript
+// Original key: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+// Logged as:     "ABC*****M*****XYZ"
+```
+
+This is implemented in `src/transcriber.ts:13-15`:
+
+```typescript
+const maskText = (text: string) => {
+  return `${text.slice(0, 3)}*****${text[Math.floor(text.length / 2)]}*****${text.slice(-3)}`;
+};
+```
+
+## Logging in production
+
+For production environments, consider:
+
+<Steps>
+  <Step title="Set appropriate log levels">
+    Use `info` or `warn` in production to reduce noise:
+    
+    ```javascript
+    const logger = pino({ 
+      level: process.env.NODE_ENV === 'production' ? 'info' : 'debug' 
+    });
+    ```
+  </Step>
+  
+  <Step title="Configure log rotation">
+    Prevent log files from growing unbounded:
+    
+    ```javascript
+    const logger = winston.createLogger({
+      transports: [
+        new winston.transports.File({ 
+          filename: 'tafrigh.log',
+          maxsize: 10485760,  // 10MB
+          maxFiles: 5,
+          tailable: true
+        })
+      ]
+    });
+    ```
+  </Step>
+  
+  <Step title="Send logs to monitoring services">
+    Integrate with services like Datadog, Sentry, or CloudWatch:
+    
+    ```javascript
+    import * as Sentry from '@sentry/node';
+    
+    const logger = {
+      error: (msg) => {
+        console.error(msg);
+        Sentry.captureMessage(msg, 'error');
+      },
+      warn: (msg) => {
+        console.warn(msg);
+        Sentry.captureMessage(msg, 'warning');
+      },
+      info: (msg) => console.log(msg),
+    };
+    
+    init({ apiKeys: ['key'], logger });
+    ```
+  </Step>
+  
+  <Step title="Include context in logs">
+    Add request IDs or user context:
+    
+    ```javascript
+    const createLogger = (requestId) => ({
+      info: (msg) => console.log(`[${requestId}] ${msg}`),
+      error: (msg) => console.error(`[${requestId}] ${msg}`),
+      debug: (msg) => console.debug(`[${requestId}] ${msg}`),
+    });
+    
+    // Set logger per request
+    const logger = createLogger('req-123');
+    init({ apiKeys: ['key'], logger });
+    ```
+  </Step>
+</Steps>
+
+## Disabling logging
+
+Logging is disabled by default. Simply omit the `logger` option:
+
+```javascript
+import { init } from 'tafrigh';
+
+// No logging
+init({ apiKeys: ['your-wit-ai-key'] });
+```
+
+The default logger implementation from `src/utils/logger.ts:3-10` is a no-op:
+
+```typescript
+let logger: Logger = {
+  debug: () => {},
+  error: () => {},
+  info: () => {},
+  trace: () => {},
+  warn: () => {},
+};
+```
+
+## Combining logging with callbacks
+
+You can use both logging and callbacks for comprehensive monitoring:
+
+```javascript
+import pino from 'pino';
+import { init, transcribe } from 'tafrigh';
+
+const logger = pino({ level: 'info' });
+
+init({ apiKeys: ['key'], logger });
+
+const options = {
+  callbacks: {
+    onTranscriptionStarted: async (totalChunks) => {
+      logger.info({ totalChunks }, 'Transcription started');
+    },
+    onTranscriptionProgress: async (chunkIndex) => {
+      logger.debug({ chunkIndex }, 'Chunk completed');
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      logger.info({ segmentCount: transcripts.length }, 'Transcription finished');
+    },
+  },
+};
+
+await transcribe('audio.mp3', options);
+```
+
+See the [Callbacks reference](/api-reference/callbacks) for all available callback hooks.
+
+## Debugging tips
+
+<AccordionGroup>
+  <Accordion title="Enable trace logging to see all transcripts">
+    ```javascript
+    const logger = pino({ level: 'trace' });
+    init({ apiKeys: ['key'], logger });
+    ```
+    
+    Trace logs include the full transcript of each chunk as it's received.
+  </Accordion>
+  
+  <Accordion title="Preserve temporary files for inspection">
+    ```javascript
+    const options = {
+      preventCleanup: true,  // Keep chunk files
+    };
+    
+    const transcript = await transcribe('audio.mp3', options);
+    // Check the debug logs for the temp directory path
+    ```
+  </Accordion>
+  
+  <Accordion title="Log to both console and file">
+    ```javascript
+    import winston from 'winston';
+    
+    const logger = winston.createLogger({
+      level: 'debug',
+      transports: [
+        new winston.transports.Console({ format: winston.format.simple() }),
+        new winston.transports.File({ filename: 'debug.log' })
+      ]
+    });
+    
+    init({ apiKeys: ['key'], logger });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Callbacks" icon="webhook" href="/api/types/callbacks">
+    Monitor progress with callback functions
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation" href="/api/types/errors">
+    Handle and log transcription errors
+  </Card>
+  <Card title="Concurrency" icon="gauge-high" href="/guides/concurrency">
+    Monitor parallel transcription workers
+  </Card>
+  <Card title="Resuming failures" icon="rotate-right" href="/guides/resuming-failed-transcriptions">
+    Log retry attempts and failures
+  </Card>
+</CardGroup>

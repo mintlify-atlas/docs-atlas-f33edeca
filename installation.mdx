@@ -1,0 +1,110 @@
+---
+title: Installation
+description: Install Tafrigh using npm, yarn, pnpm, or bun
+---
+
+# Installation
+
+Install Tafrigh using your preferred package manager.
+
+## Requirements
+
+<Note>
+  Tafrigh requires Node.js 24.0.0 or higher, or Bun 1.3.3 or higher.
+</Note>
+
+Before installing, make sure you have:
+
+- Node.js 24.0.0+ or Bun 1.3.3+
+- FFmpeg installed on your system (required for audio processing)
+- At least one Wit.ai API key ([create one here](https://wit.ai/))
+
+## Package managers
+
+<CodeGroup>
+
+```bash npm
+npm install tafrigh
+```
+
+```bash yarn
+yarn add tafrigh
+```
+
+```bash pnpm
+pnpm install tafrigh
+```
+
+```bash bun
+bun add tafrigh
+```
+
+</CodeGroup>
+
+## Verify installation
+
+After installation, verify that Tafrigh is properly installed by importing it in a test file:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+console.log('Tafrigh installed successfully!');
+```
+
+## FFmpeg installation
+
+Tafrigh uses FFmpeg for audio processing. If you don't have FFmpeg installed:
+
+<CodeGroup>
+
+```bash macOS
+brew install ffmpeg
+```
+
+```bash Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install ffmpeg
+```
+
+```bash Windows
+# Using Chocolatey
+choco install ffmpeg
+
+# Or download from https://ffmpeg.org/download.html
+```
+
+</CodeGroup>
+
+Verify FFmpeg is installed:
+
+```bash
+ffmpeg -version
+```
+
+## Get Wit.ai API keys
+
+To use Tafrigh, you'll need at least one Wit.ai API key:
+
+<Steps>
+  <Step title="Create a Wit.ai account">
+    Visit [wit.ai](https://wit.ai/) and sign up for a free account
+  </Step>
+  
+  <Step title="Create a new app">
+    In the Wit.ai dashboard, create a new app and select the language you want to transcribe
+  </Step>
+  
+  <Step title="Copy your API key">
+    Go to Settings > API Details and copy your Server Access Token
+  </Step>
+</Steps>
+
+<Warning>
+  The language you select when creating your Wit.ai app determines the transcription language. If your API key is for English and you provide Arabic audio, the transcription will not be accurate.
+</Warning>
+
+## Next steps
+
+<Card title="Quick start" icon="rocket" href="/quickstart">
+  Learn how to transcribe your first audio file
+</Card>

@@ -1,0 +1,247 @@
+---
+title: Advanced configuration
+description: Fine-tune transcription behavior with chunk duration, silence detection, and retry settings
+---
+
+Tafrigh provides extensive configuration options to optimize transcription accuracy and performance for your specific audio content.
+
+## Configuration overview
+
+The `transcribe` function accepts an options object with three main configuration areas:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const options = {
+  concurrency: 5,
+  retries: 3,
+  splitOptions: { /* ... */ },
+  preprocessOptions: { /* ... */ },
+  callbacks: { /* ... */ },
+  preventCleanup: false
+};
+
+const transcript = await transcribe('audio.mp3', options);
+```
+
+## Split options
+
+Control how Tafrigh chunks your audio files for optimal transcription quality.
+
+### Chunk duration
+
+The `chunkDuration` setting determines the maximum length of each audio chunk sent to the Wit.ai API:
+
+```javascript
+const options = {
+  splitOptions: {
+    chunkDuration: 60, // Split into 60-second chunks
+  }
+};
+```
+
+<Note>
+Actual chunk length may be shorter than `chunkDuration` if Tafrigh detects that splitting at the exact duration would cut through a spoken word. The library automatically finds the nearest silence to split at.
+</Note>
+
+**Default:** `60` seconds
+
+**Trade-offs:**
+- Shorter chunks: More granular timestamps, faster parallel processing, but more API requests
+- Longer chunks: Fewer API requests, but less granular timestamps and longer processing time per chunk
+
+### Chunk minimum threshold
+
+Filter out chunks that are too short to contain meaningful content:
+
+```javascript
+const options = {
+  splitOptions: {
+    chunkMinThreshold: 4, // Discard chunks shorter than 4 seconds
+  }
+};
+```
+
+**Default:** `0.9` seconds
+
+This prevents very short audio segments (like brief pauses or noise) from being sent to the API.
+
+### Silence detection
+
+Configure how Tafrigh identifies silence for intelligent chunk splitting:
+
+```javascript
+const options = {
+  splitOptions: {
+    chunkDuration: 60,
+    silenceDetection: {
+      silenceThreshold: -30,  // Volume level considered as silence (dB)
+      silenceDuration: 0.5,   // Minimum silence length to split at (seconds)
+    },
+  },
+};
+```
+
+#### Silence threshold
+
+The `silenceThreshold` defines the volume level (in decibels) below which audio is considered silence.
+
+**Default:** `-25` dB
+
+**Tuning guidelines:**
+- Noisy background: Use a lower value (e.g., `-35` dB) to only split on clear silence
+- Quiet environment: Use a higher value (e.g., `-20` dB) to detect subtle pauses
+
+#### Silence duration
+
+The `silenceDuration` specifies the minimum duration of silence required to trigger a split.
+
+**Default:** `0.1` seconds
+
+**Tuning guidelines:**
+- Fast speakers with brief pauses: Use shorter duration (e.g., `0.1`s)
+- Speakers with longer natural pauses: Use longer duration (e.g., `0.5`s or higher)
+
+## Retry configuration
+
+Configure automatic retry behavior for failed API requests:
+
+```javascript
+const options = {
+  retries: 3, // Retry failed chunks up to 3 times
+};
+```
+
+**Default:** `5` retries
+
+Tafrigh uses exponential backoff for retries to handle transient network failures or API rate limits gracefully.
+
+## Prevent cleanup
+
+By default, Tafrigh automatically deletes temporary directories created during processing. For debugging, you can preserve these files:
+
+```javascript
+const options = {
+  preventCleanup: true, // Keep temporary files after transcription
+};
+
+const transcript = await transcribe('audio.mp3', options);
+// Temporary directory and chunk files remain on disk
+```
+
+**Default:** `false`
+
+<Warning>
+When `preventCleanup` is `true`, you're responsible for manually deleting the temporary directory to avoid filling up disk space.
+</Warning>
+
+## Real-world example
+
+Here's a complete configuration optimized for a podcast with multiple speakers:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['key1', 'key2', 'key3'] });
+
+const options = {
+  concurrency: 3,
+  retries: 5,
+  splitOptions: {
+    chunkDuration: 90,  // Longer chunks for continuous speech
+    chunkMinThreshold: 5,
+    silenceDetection: {
+      silenceThreshold: -28,  // Account for background music
+      silenceDuration: 0.8,   // Split on natural conversation pauses
+    },
+  },
+  preprocessOptions: {
+    noiseReduction: {
+      afftdnStart: 1,
+      afftdnStop: 1.5,
+      afftdn_nf: -25,
+      dialogueEnhance: true,
+      highpass: 200,
+      lowpass: 3000,
+    },
+  },
+};
+
+const transcript = await transcribe('podcast-episode.mp3', options);
+```
+
+## Configuration for different scenarios
+
+<Steps>
+  <Step title="Interview or lecture">
+    Use longer chunks (90-120s) and longer silence duration (0.8-1.5s) to capture complete thoughts without interruption.
+    
+    ```javascript
+    {
+      splitOptions: {
+        chunkDuration: 120,
+        silenceDetection: {
+          silenceThreshold: -30,
+          silenceDuration: 1.5,
+        },
+      },
+    }
+    ```
+  </Step>
+  
+  <Step title="Fast-paced conversation">
+    Use shorter chunks (30-45s) and brief silence detection (0.1-0.3s) to handle rapid exchanges.
+    
+    ```javascript
+    {
+      splitOptions: {
+        chunkDuration: 45,
+        silenceDetection: {
+          silenceThreshold: -25,
+          silenceDuration: 0.2,
+        },
+      },
+    }
+    ```
+  </Step>
+  
+  <Step title="Noisy environment">
+    Adjust threshold lower and enable aggressive noise reduction.
+    
+    ```javascript
+    {
+      splitOptions: {
+        silenceDetection: {
+          silenceThreshold: -35,
+          silenceDuration: 0.5,
+        },
+      },
+      preprocessOptions: {
+        noiseReduction: {
+          afftdn_nf: -30,
+          dialogueEnhance: true,
+        },
+      },
+    }
+    ```
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Noise reduction" icon="volume-slash" href="/guides/noise-reduction">
+    Deep dive into audio preprocessing options
+  </Card>
+  <Card title="Concurrency" icon="gauge-high" href="/guides/concurrency">
+    Optimize processing speed with parallel transcription
+  </Card>
+  <Card title="Callbacks" icon="webhook" href="/api/types/callbacks">
+    Monitor progress with callback functions
+  </Card>
+  <Card title="Resuming failures" icon="rotate-right" href="/guides/resuming-failed-transcriptions">
+    Handle partial failures gracefully
+  </Card>
+</CardGroup>

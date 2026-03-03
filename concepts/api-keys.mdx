@@ -1,0 +1,250 @@
+---
+title: API key rotation and concurrency
+description: Learn how Tafrigh manages multiple Wit.ai API keys for parallel transcription
+---
+
+Tafrigh uses a round-robin rotation strategy to distribute API requests evenly across multiple Wit.ai keys. This enables parallel processing and helps avoid rate limits.
+
+## How API keys work
+
+Wit.ai enforces rate limits per API key. By cycling through multiple keys, Tafrigh can:
+
+1. Process chunks concurrently (one request per key)
+2. Distribute load evenly to avoid hitting individual key limits
+3. Continue processing if one key fails (using retry logic)
+
+## Setting API keys
+
+You can configure keys in two ways:
+
+### Method 1: Initialize with code
+
+```typescript
+import { init } from 'tafrigh';
+
+init({ 
+  apiKeys: ['key1', 'key2', 'key3'] 
+});
+```
+
+This replaces any existing keys, including those from environment variables (see `/home/daytona/workspace/source/src/apiKeys.ts:64-70`):
+
+```typescript
+export const setApiKeys = (apiKeys: string[]) => {
+    WIT_AI_API_KEYS.length = 0;
+    WIT_AI_API_KEYS.push(...apiKeys);
+    currentKeyIndex = 0;
+    
+    validateApiKeys();
+};
+```
+
+### Method 2: Use environment variables
+
+Set `WIT_AI_API_KEYS` as a space-separated list:
+
+```bash
+export WIT_AI_API_KEYS="key1 key2 key3"
+node your-script.js
+```
+
+Tafrigh reads this automatically on startup (see `/home/daytona/workspace/source/src/apiKeys.ts:10`):
+
+```typescript
+const WIT_AI_API_KEYS: string[] = process.env.WIT_AI_API_KEYS 
+    ? process.env.WIT_AI_API_KEYS.split(' ') 
+    : [];
+```
+
+<Warning>
+Calling `init({ apiKeys: [...] })` **overwrites** environment variable keys. If you want to add keys, combine them explicitly:
+
+```typescript
+const envKeys = process.env.WIT_AI_API_KEYS?.split(' ') || [];
+init({ apiKeys: [...envKeys, 'additional-key'] });
+```
+</Warning>
+
+## Round-robin rotation
+
+Every time Tafrigh requests a transcription, it calls `getNextApiKey()` to retrieve the next key in sequence:
+
+```typescript
+export const getNextApiKey = (): string => {
+    validateApiKeys();
+    
+    const key = WIT_AI_API_KEYS[currentKeyIndex];
+    currentKeyIndex = (currentKeyIndex + 1) % WIT_AI_API_KEYS.length;
+    return key;
+};
+```
+
+This ensures even distribution:
+
+```typescript
+// Given keys: ['keyA', 'keyB', 'keyC']
+getNextApiKey(); // Returns 'keyA', index moves to 1
+getNextApiKey(); // Returns 'keyB', index moves to 2
+getNextApiKey(); // Returns 'keyC', index wraps to 0
+getNextApiKey(); // Returns 'keyA' again
+```
+
+### Example: 6 chunks, 3 keys
+
+If you transcribe a file that splits into 6 chunks with 3 API keys:
+
+| Chunk | API Key Used | Worker Thread |
+|-------|-------------|---------------|
+| 0     | keyA        | Worker 1      |
+| 1     | keyB        | Worker 2      |
+| 2     | keyC        | Worker 3      |
+| 3     | keyA        | Worker 1      |
+| 4     | keyB        | Worker 2      |
+| 5     | keyC        | Worker 3      |
+
+## Concurrency control
+
+The `concurrency` option limits how many chunks process simultaneously. Tafrigh calculates the effective concurrency based on available keys (see `/home/daytona/workspace/source/src/transcriber.ts:192-193`):
+
+```typescript
+const apiKeyCount = getApiKeysCount();
+const maxConcurrency = concurrency && concurrency <= apiKeyCount 
+    ? concurrency 
+    : apiKeyCount;
+```
+
+### Concurrency scenarios
+
+<AccordionGroup>
+  <Accordion title="More keys than concurrency limit">
+    **Configuration:** 5 keys, `concurrency: 2`
+    
+    **Result:** Only 2 workers run at once, using 2 of the 5 keys. The rotation continues across all 5 keys as chunks complete.
+    
+    ```typescript
+    init({ apiKeys: ['k1', 'k2', 'k3', 'k4', 'k5'] });
+    await transcribe('audio.mp3', { concurrency: 2 });
+    // Uses 2 workers, rotating through all 5 keys
+    ```
+  </Accordion>
+  
+  <Accordion title="Fewer keys than concurrency limit">
+    **Configuration:** 2 keys, `concurrency: 5`
+    
+    **Result:** Only 2 workers run (limited by available keys), even though you requested 5.
+    
+    ```typescript
+    init({ apiKeys: ['k1', 'k2'] });
+    await transcribe('audio.mp3', { concurrency: 5 });
+    // Still only uses 2 workers (maxConcurrency = 2)
+    ```
+  </Accordion>
+  
+  <Accordion title="No concurrency specified">
+    **Configuration:** 3 keys, no `concurrency` option
+    
+    **Result:** Uses all 3 keys as workers.
+    
+    ```typescript
+    init({ apiKeys: ['k1', 'k2', 'k3'] });
+    await transcribe('audio.mp3');
+    // Automatically uses 3 workers
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Concurrency implementation
+
+Tafrigh uses the `p-queue` library to manage concurrent API requests (see `/home/daytona/workspace/source/src/transcriber.ts:119`):
+
+```typescript
+const queue = new PQueue({ concurrency: maxConcurrency });
+
+const processChunk = async (index: number, chunk: AudioChunk) => {
+    try {
+        const transcript = await requestNextTranscript(
+            chunk, 
+            index, 
+            callbacks, 
+            retries
+        );
+        // ...
+    } catch (error) {
+        failures.push({ chunk, error, index });
+    }
+};
+
+chunkFiles.forEach((chunk, index) => {
+    queue.add(() => processChunk(index, chunk));
+});
+
+await queue.onIdle(); // Wait for all tasks to complete
+```
+
+Each queued task calls `getNextApiKey()` to retrieve a key, ensuring even distribution.
+
+## Key masking for security
+
+When logging, Tafrigh masks API keys to prevent leaks (see `/home/daytona/workspace/source/src/transcriber.ts:13-15`):
+
+```typescript
+const maskText = (text: string) => {
+    return `${text.slice(0, 3)}*****${text[Math.floor(text.length / 2)]}*****${text.slice(-3)}`;
+};
+
+const apiKey = getNextApiKey();
+logger.info?.(`Calling dictation for ${chunk.filename} with key ${maskText(apiKey)}`);
+// Output: "Calling dictation for chunk_0.mp3 with key abc*****x*****xyz"
+```
+
+## Validation
+
+Tafrigh validates that at least one key exists before processing:
+
+```typescript
+const validateApiKeys = (): void => {
+    if (getApiKeysCount() === 0) {
+        logger.error('At least one Wit.ai API key is required.');
+        throw new Error('Empty wit.ai API keys');
+    }
+};
+```
+
+This runs automatically when you call `init()` or `getNextApiKey()`.
+
+## Best practices
+
+<Note>
+**Language consistency:** All API keys must use the same language setting in your Wit.ai app. Mixing English and Arabic keys will produce inconsistent transcriptions.
+</Note>
+
+<Tip>
+**Optimal key count:** Match the number of keys to your typical chunk count. For example, if files average 10 chunks and you want full parallelism, use 10 keys.
+</Tip>
+
+<Info>
+**Rate limit handling:** If you encounter rate limit errors even with rotation, reduce `concurrency` or add exponential backoff by increasing the `retries` parameter.
+</Info>
+
+## Example: Dynamic concurrency
+
+Adjust concurrency based on system resources:
+
+```typescript
+import os from 'node:os';
+import { init, transcribe } from 'tafrigh';
+
+const cpuCount = os.cpus().length;
+const apiKeys = ['key1', 'key2', 'key3', 'key4', 'key5'];
+
+init({ apiKeys });
+
+// Use at most half the CPU cores or all available keys, whichever is lower
+const maxConcurrency = Math.min(Math.floor(cpuCount / 2), apiKeys.length);
+
+const transcript = await transcribe('audio.mp3', {
+  concurrency: maxConcurrency
+});
+
+console.log(`Processed with ${maxConcurrency} workers`);
+```

@@ -1,80 +1,272 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Get started with Tafrigh in minutes
 ---
 
-## Get started in three steps
+# Quick start
 
-Get your documentation site running locally and make your first customization.
+This guide will help you transcribe your first audio file using Tafrigh.
 
-### Step 1: Set up your local environment
+## Initialize the library
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+First, import and initialize Tafrigh with your Wit.ai API key:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+// Initialize with your Wit.ai API key
+init({ apiKeys: ['your-wit-ai-key'] });
+```
+
+<Note>
+  You can provide multiple API keys to enable concurrent processing and avoid rate limits:
+  
+  ```javascript
+  init({ apiKeys: ['key1', 'key2', 'key3'] });
+  ```
+</Note>
+
+## Transcribe an audio file
+
+Now you can transcribe any audio or video file supported by FFmpeg:
+
+<CodeGroup>
+
+```javascript Local file
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('./path/to/audio.mp3');
+console.log(transcript);
+```
+
+```javascript Remote URL
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('https://example.com/audio.mp3');
+console.log(transcript);
+```
+
+```javascript Stream (with ytdl-core)
+import ytdl from 'ytdl-core';
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const stream = ytdl('https://www.youtube.com/watch?v=VIDEO_ID', {
+  quality: 'highestaudio'
+});
+
+const transcript = await transcribe(stream);
+console.log(transcript);
+```
+
+</CodeGroup>
+
+## Understanding the output
+
+The `transcribe` function returns an array of segments with timestamps:
+
+```javascript
+[
+  {
+    text: "Hello world",
+    start: 0,
+    end: 2.5,
+    confidence: 0.95,
+    tokens: [
+      { text: "Hello", start: 0, end: 1.2, confidence: 0.98 },
+      { text: "world", start: 1.3, end: 2.5, confidence: 0.92 }
+    ]
+  },
+  {
+    text: "This is a test",
+    start: 2.7,
+    end: 4.2
+  }
+]
+```
+
+Each segment contains:
+
+- `text` - The transcribed text
+- `start` - Start time in seconds
+- `end` - End time in seconds
+- `confidence` (optional) - Confidence score between 0 and 1
+- `tokens` (optional) - Word-by-word breakdown with individual timestamps
+
+## Add progress tracking
+
+Monitor transcription progress with callbacks:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('./audio.mp3', {
+  callbacks: {
+    onPreprocessingStarted: async (filePath) => {
+      console.log(`Preprocessing ${filePath}...`);
+    },
+    onPreprocessingProgress: async (percent) => {
+      console.log(`Preprocessing: ${percent}% complete`);
+    },
+    onSplittingStarted: async (totalChunks) => {
+      console.log(`Splitting into ${totalChunks} chunks...`);
+    },
+    onTranscriptionStarted: async (totalChunks) => {
+      console.log(`Transcribing ${totalChunks} chunks...`);
+    },
+    onTranscriptionProgress: async (chunkIndex) => {
+      console.log(`Transcribed chunk ${chunkIndex}`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      console.log(`Completed! Got ${transcripts.length} segments`);
+    }
+  }
+});
+```
+
+## Enable logging
+
+Use any logger that implements the Logger interface:
+
+<CodeGroup>
+
+```javascript console
+import { init } from 'tafrigh';
+
+init({
+  apiKeys: ['your-wit-ai-key'],
+  logger: console
+});
+```
+
+```javascript pino
+import pino from 'pino';
+import { init } from 'tafrigh';
+
+const logger = pino({ level: 'debug' });
+
+init({
+  apiKeys: ['your-wit-ai-key'],
+  logger
+});
+```
+
+```javascript custom
+import { init } from 'tafrigh';
+
+const customLogger = {
+  info: (msg) => console.log(`[INFO] ${msg}`),
+  debug: (msg) => console.log(`[DEBUG] ${msg}`),
+  error: (msg) => console.error(`[ERROR] ${msg}`),
+  warn: (msg) => console.warn(`[WARN] ${msg}`)
+};
+
+init({
+  apiKeys: ['your-wit-ai-key'],
+  logger: customLogger
+});
+```
+
+</CodeGroup>
+
+## Environment variables
+
+You can also set API keys using environment variables:
+
+```bash
+export WIT_AI_API_KEYS="key1 key2 key3"
+```
+
+Then initialize without passing keys explicitly:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+// API keys will be loaded from WIT_AI_API_KEYS environment variable
+init({ apiKeys: process.env.WIT_AI_API_KEYS.split(' ') });
+
+const transcript = await transcribe('./audio.mp3');
+```
+
+## Complete example
+
+Here's a complete example that puts it all together:
+
+```javascript
+import { init, transcribe } from 'tafrigh';
+
+// Initialize with multiple API keys for better performance
+init({
+  apiKeys: ['key1', 'key2', 'key3'],
+  logger: console
+});
+
+try {
+  const transcript = await transcribe('https://example.com/podcast.mp3', {
+    // Use up to 5 concurrent workers
+    concurrency: 5,
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    // Configure audio splitting
+    splitOptions: {
+      chunkDuration: 60, // 60-second chunks
+      silenceDetection: {
+        silenceThreshold: -30,
+        silenceDuration: 0.5
+      }
+    },
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    // Configure noise reduction
+    preprocessOptions: {
+      noiseReduction: {
+        dialogueEnhance: true,
+        highpass: 200,
+        lowpass: 3000
+      }
+    },
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    // Track progress
+    callbacks: {
+      onTranscriptionProgress: async (chunkIndex) => {
+        console.log(`Transcribed chunk ${chunkIndex}`);
+      },
+      onTranscriptionFinished: async (transcripts) => {
+        console.log(`Done! Got ${transcripts.length} segments`);
+      }
+    }
+  });
+  
+  // Use the transcript
+  const fullText = transcript.map(segment => segment.text).join(' ');
+  console.log('Full transcript:', fullText);
+  
+} catch (error) {
+  console.error('Transcription failed:', error);
+}
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Advanced configuration" icon="gear" href="/guides/advanced-configuration">
+    Learn about all available configuration options
+  </Card>
+  
+  <Card title="Error handling" icon="triangle-exclamation" href="/concepts/error-handling">
+    Handle failures and resume failed transcriptions
+  </Card>
+  
+  <Card title="Noise reduction" icon="volume-xmark" href="/guides/noise-reduction">
+    Optimize audio preprocessing for better accuracy
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api/init">
+    Explore the complete API documentation
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

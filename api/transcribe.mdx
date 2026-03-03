@@ -1,0 +1,259 @@
+---
+title: transcribe()
+description: Transcribe audio content and return timestamped segments
+---
+
+## Function signature
+
+```typescript
+async function transcribe(
+  content: string | ReadStream,
+  options?: TranscribeOptions
+): Promise<Segment[]>
+```
+
+Transcribes audio content and returns an array of transcript segments with timestamps. This function handles preprocessing the audio, splitting it into chunks, and transcribing each chunk using Wit.ai's API.
+
+## Parameters
+
+<ParamField path="content" type="string | ReadStream" required>
+  The audio content to transcribe. Can be:
+  - A file path (e.g., `'path/to/audio.mp3'`)
+  - A URL to a remote audio file
+  - A Node.js `ReadStream` object
+</ParamField>
+
+<ParamField path="options" type="TranscribeOptions">
+  Configuration options for transcription
+
+  <Expandable title="properties">
+    <ParamField path="concurrency" type="number" default="1">
+      Maximum number of concurrent transcription operations. Limited by the number of available API keys provided to [`init()`](/api/init). Higher concurrency improves performance for large files.
+    </ParamField>
+
+    <ParamField path="retries" type="number" default="3">
+      Number of retry attempts for failed transcription requests. Uses exponential backoff between retries.
+    </ParamField>
+
+    <ParamField path="preventCleanup" type="boolean" default="false">
+      If `true`, temporary processing directories and audio chunks won't be deleted after transcription. Useful for debugging or when you need to retry failed transcriptions with [`resumeFailedTranscriptions()`](/api/resume-failed-transcriptions).
+    </ParamField>
+
+    <ParamField path="preprocessOptions" type="PreprocessOptions">
+      Options for audio preprocessing such as noise reduction, normalization, and filtering. See the [ffmpeg-simplified documentation](https://github.com/yourusername/ffmpeg-simplified) for available options.
+    </ParamField>
+
+    <ParamField path="splitOptions" type="SplitOptions">
+      Options for splitting audio into chunks.
+
+      <Expandable title="properties">
+        <ParamField path="chunkDuration" type="number" default="60">
+          Target duration for each audio chunk in seconds. Must be between 4 and 300 seconds. Wit.ai has a maximum file duration limit, so large files are automatically split.
+        </ParamField>
+
+        <ParamField path="silenceDetection" type="object">
+          Configure silence detection for smarter chunk splitting.
+
+          <Expandable title="properties">
+            <ParamField path="silenceThreshold" type="number" default="-30">
+              Volume threshold in dB for detecting silence. More negative values detect quieter silence.
+            </ParamField>
+          </Expandable>
+        </ParamField>
+      </Expandable>
+    </ParamField>
+
+    <ParamField path="callbacks" type="Callbacks">
+      Callbacks for monitoring and responding to various stages of the transcription process.
+
+      <Expandable title="properties">
+        <ParamField path="onTranscriptionStarted" type="(totalChunks: number) => Promise<void>">
+          Called before transcription begins, with the total number of chunks to be processed.
+        </ParamField>
+
+        <ParamField path="onTranscriptionProgress" type="(chunkIndex: number) => void">
+          Called when each individual chunk is transcribed, with the index of the completed chunk.
+        </ParamField>
+
+        <ParamField path="onTranscriptionFinished" type="(transcripts: Segment[]) => Promise<void>">
+          Called when all transcription is complete, with the array of all transcribed segments.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="segments" type="Promise<Segment[]>">
+  A promise that resolves to an array of transcript segments. Each segment contains:
+
+  <Expandable title="Segment properties">
+    <ResponseField name="text" type="string">
+      The transcribed text for this segment.
+    </ResponseField>
+
+    <ResponseField name="start" type="number">
+      Start time of the segment in seconds.
+    </ResponseField>
+
+    <ResponseField name="end" type="number">
+      End time of the segment in seconds.
+    </ResponseField>
+
+    <ResponseField name="confidence" type="number">
+      Confidence score for this transcription (between 0 and 1). Higher values indicate greater confidence.
+    </ResponseField>
+
+    <ResponseField name="tokens" type="Token[]">
+      Optional word-by-word breakdown of the transcription with individual timings. Each token contains:
+      - `text`: The word or phrase
+      - `start`: Start time in seconds
+      - `end`: End time in seconds
+      - `confidence`: Confidence score (0-1)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Throws
+
+<ResponseField name="TranscriptionError" type="Error">
+  Thrown when one or more chunks fail to transcribe. The error object contains:
+  - `failures`: Array of failed transcription attempts with error details
+  - `transcripts`: Successfully transcribed segments
+  - `outputDir`: Path to the temporary directory containing audio chunks
+  - `chunkFiles`: Array of all audio chunk files
+
+  You can use [`resumeFailedTranscriptions()`](/api/resume-failed-transcriptions) to retry failed chunks.
+</ResponseField>
+
+<ResponseField name="Error" type="Error">
+  Thrown if options validation fails (e.g., invalid `chunkDuration` values).
+</ResponseField>
+
+## Examples
+
+### Basic transcription
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('path/to/audio.mp3');
+
+console.log(transcript);
+// [
+//   { text: "Hello world", start: 0, end: 2.5, confidence: 0.98 },
+//   { text: "This is a test", start: 2.5, end: 5.0, confidence: 0.95 }
+// ]
+```
+
+### Concurrent transcription with multiple API keys
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({
+  apiKeys: ['key-1', 'key-2', 'key-3']
+});
+
+const transcript = await transcribe('large-audio-file.mp3', {
+  concurrency: 3,
+  splitOptions: {
+    chunkDuration: 60
+  }
+});
+```
+
+### Custom chunk duration and silence detection
+
+```typescript
+const transcript = await transcribe('podcast.mp3', {
+  splitOptions: {
+    chunkDuration: 120,
+    silenceDetection: {
+      silenceThreshold: -35
+    }
+  }
+});
+```
+
+### Progress tracking with callbacks
+
+```typescript
+let totalChunks = 0;
+let processedChunks = 0;
+
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    onTranscriptionStarted: async (total) => {
+      totalChunks = total;
+      console.log(`Starting transcription of ${total} chunks`);
+    },
+    onTranscriptionProgress: (index) => {
+      processedChunks++;
+      console.log(`Progress: ${processedChunks}/${totalChunks} chunks`);
+    },
+    onTranscriptionFinished: async (transcripts) => {
+      console.log(`Completed! Total segments: ${transcripts.length}`);
+    }
+  }
+});
+```
+
+### Error handling and retry
+
+```typescript
+import { init, transcribe, resumeFailedTranscriptions, TranscriptionError } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+try {
+  const transcript = await transcribe('audio.mp3', {
+    preventCleanup: true // Keep chunks for potential retry
+  });
+  console.log('Success:', transcript);
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.log(`Failed chunks: ${error.failures.length}`);
+    console.log(`Successful chunks: ${error.transcripts.length}`);
+    
+    // Retry failed chunks
+    const result = await resumeFailedTranscriptions(error, {
+      concurrency: 1
+    });
+    
+    if (result.failures.length === 0) {
+      console.log('All chunks transcribed successfully!');
+      console.log(result.transcripts);
+    }
+  } else {
+    throw error;
+  }
+}
+```
+
+### Transcribing from a stream
+
+```typescript
+import { createReadStream } from 'fs';
+import { transcribe } from 'tafrigh';
+
+const stream = createReadStream('audio.mp3');
+const transcript = await transcribe(stream);
+```
+
+### Transcribing from a URL
+
+```typescript
+const transcript = await transcribe('https://example.com/audio.mp3');
+```
+
+<Note>
+  The `transcribe()` function automatically cleans up temporary files after completion. Set `preventCleanup: true` if you need to preserve chunks for debugging or retry operations.
+</Note>
+
+<Note>
+  Wit.ai has rate limits and file size restrictions. Use multiple API keys with higher concurrency to improve throughput for large files.
+</Note>

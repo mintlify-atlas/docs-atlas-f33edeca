@@ -1,0 +1,113 @@
+---
+title: init()
+description: Initialize the Tafrigh library with Wit.ai API keys
+---
+
+## Function signature
+
+```typescript
+function init(options: {
+  apiKeys: string[];
+  logger?: Logger;
+}): void
+```
+
+Initializes the Tafrigh library with the provided Wit.ai API keys and optional custom logger.
+
+You must call this function before using [`transcribe()`](/api/transcribe) or other Tafrigh functions. The API keys are used to authenticate requests to the Wit.ai speech-to-text service.
+
+## Parameters
+
+<ParamField path="options" type="object" required>
+  Configuration options for initialization
+
+  <Expandable title="properties">
+    <ParamField path="apiKeys" type="string[]" required>
+      Array of Wit.ai API keys to use for transcription. Multiple keys enable concurrent transcription of audio chunks. The library rotates through the provided keys to distribute requests.
+    </ParamField>
+
+    <ParamField path="logger" type="Logger">
+      Optional custom logger instance for logging library operations. The logger should implement the `Logger` interface with optional methods: `debug`, `info`, `warn`, `error`, and `trace`. If not provided, the library uses a default logger.
+
+      ```typescript
+      interface Logger {
+        debug?: (message: string, ...args: any[]) => void;
+        info?: (message: string, ...args: any[]) => void;
+        warn?: (message: string, ...args: any[]) => void;
+        error?: (message: string, ...args: any[]) => void;
+        trace?: (message: string, ...args: any[]) => void;
+      }
+      ```
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="void" type="void">
+  This function does not return a value.
+</ResponseField>
+
+## Examples
+
+### Basic initialization
+
+```typescript
+import { init } from 'tafrigh';
+
+init({
+  apiKeys: ['your-wit-ai-api-key']
+});
+```
+
+### Multiple API keys for concurrent transcription
+
+```typescript
+import { init } from 'tafrigh';
+
+init({
+  apiKeys: [
+    'wit-ai-key-1',
+    'wit-ai-key-2',
+    'wit-ai-key-3'
+  ]
+});
+```
+
+With multiple API keys, Tafrigh can transcribe audio chunks in parallel, significantly improving performance for large files.
+
+### Custom logger
+
+```typescript
+import { init } from 'tafrigh';
+
+const customLogger = {
+  debug: (msg: string) => console.debug(`[DEBUG] ${msg}`),
+  info: (msg: string) => console.info(`[INFO] ${msg}`),
+  warn: (msg: string) => console.warn(`[WARN] ${msg}`),
+  error: (msg: string) => console.error(`[ERROR] ${msg}`),
+  trace: (msg: string) => console.trace(`[TRACE] ${msg}`)
+};
+
+init({
+  apiKeys: ['your-wit-ai-api-key'],
+  logger: customLogger
+});
+```
+
+### Using console as logger
+
+```typescript
+import { init } from 'tafrigh';
+
+init({
+  apiKeys: ['your-wit-ai-api-key'],
+  logger: console
+});
+```
+
+The standard `console` object implements the `Logger` interface and can be used directly.
+
+<Note>
+  You must call `init()` before using any other Tafrigh functions. Attempting to transcribe without initialization will result in an error.
+</Note>

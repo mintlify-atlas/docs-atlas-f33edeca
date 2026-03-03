@@ -1,0 +1,288 @@
+---
+title: Custom preprocessing
+description: Optimize audio quality with noise reduction and custom preprocessing options
+---
+
+## Understanding preprocessing
+
+Tafrigh automatically preprocesses audio files before transcription to improve accuracy. You can customize noise reduction, filtering, and dialogue enhancement to match your audio characteristics.
+
+## Default preprocessing
+
+By default, Tafrigh applies noise reduction with these settings:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+// Uses default preprocessing
+const transcript = await transcribe('audio.mp3');
+```
+
+The default noise reduction includes:
+- High-pass filter at 300 Hz
+- Low-pass filter at 3000 Hz
+- FFT-based denoising from 0s to 1.5s
+- Noise floor at -20 dB
+- Dialogue enhancement enabled
+
+## Custom noise reduction
+
+Adjust noise reduction parameters to match your audio environment:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('noisy-audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      // Isolate voice frequencies (remove low-frequency rumble)
+      highpass: 200,
+      // Remove high-frequency hiss
+      lowpass: 3000,
+      // FFT-based noise reduction timing
+      afftdnStart: 1,
+      afftdnStop: 2,
+      // Noise floor threshold
+      afftdn_nf: -25,
+      // Enhance dialogue clarity
+      dialogueEnhance: true,
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+<Note>
+**Parameter guide:**
+- `highpass` - Removes low frequencies below this value (Hz). Useful for eliminating rumble and bass noise.
+- `lowpass` - Removes high frequencies above this value (Hz). Useful for eliminating hiss and electronic noise.
+- `afftdnStart` - When to start analyzing noise profile (seconds)
+- `afftdnStop` - When to stop analyzing noise profile (seconds)
+- `afftdn_nf` - Noise floor in dB. Lower values = more aggressive noise reduction
+- `dialogueEnhance` - Boosts midrange frequencies where speech occurs
+</Note>
+
+## Disabling noise reduction
+
+For clean studio recordings, you may want to skip noise reduction:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('studio-recording.mp3', {
+  preprocessOptions: {
+    noiseReduction: null,
+  },
+});
+
+console.log(transcript);
+```
+
+<Tip>
+Disabling noise reduction speeds up processing for high-quality audio that doesn't need enhancement.
+</Tip>
+
+## Selective filter usage
+
+You can disable individual filters by setting them to `null`:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      // Only use high-pass filter, disable others
+      highpass: 300,
+      lowpass: null,
+      afftdnStart: null,
+      afftdnStop: null,
+      afftdn_nf: null,
+      dialogueEnhance: false,
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+## Aggressive noise reduction
+
+For very noisy environments (street recordings, crowded spaces):
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('street-interview.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 250,
+      lowpass: 2500,
+      afftdnStart: 0.5,
+      afftdnStop: 3,
+      afftdn_nf: -30, // More aggressive
+      dialogueEnhance: true,
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+## Phone call quality audio
+
+Optimize for telephone or VoIP recordings:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('phone-call.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      // Telephone bandwidth is typically 300-3400 Hz
+      highpass: 300,
+      lowpass: 3400,
+      afftdnStart: 0,
+      afftdnStop: 1.5,
+      afftdn_nf: -20,
+      dialogueEnhance: true,
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+## Monitoring preprocessing progress
+
+Track preprocessing progress with callbacks:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      dialogueEnhance: true,
+      highpass: 200,
+      lowpass: 3000,
+    },
+  },
+  callbacks: {
+    onPreprocessingStarted: async (filePath) => {
+      console.log(`Starting preprocessing: ${filePath}`);
+    },
+    onPreprocessingProgress: async (percent) => {
+      console.log(`Preprocessing progress: ${percent}%`);
+    },
+    onPreprocessingFinished: async (filePath) => {
+      console.log(`Preprocessing complete: ${filePath}`);
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+### Expected output
+
+```
+Starting preprocessing: /tmp/tafrigh/1234567890.mp3
+Preprocessing progress: 15%
+Preprocessing progress: 35%
+Preprocessing progress: 58%
+Preprocessing progress: 82%
+Preprocessing progress: 100%
+Preprocessing complete: /tmp/tafrigh/1234567890.mp3
+```
+
+## Custom splitting options
+
+Combine preprocessing with custom audio splitting for optimal results:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+const transcript = await transcribe('long-lecture.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      dialogueEnhance: true,
+      highpass: 250,
+      lowpass: 3000,
+    },
+  },
+  splitOptions: {
+    // 60-second chunks
+    chunkDuration: 60,
+    // Minimum chunk length (filter out very short segments)
+    chunkMinThreshold: 4,
+    silenceDetection: {
+      // What volume level counts as silence
+      silenceThreshold: -30,
+      // How long silence must last to trigger a split
+      silenceDuration: 0.5,
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+<Note>
+Adjusting `silenceThreshold` is important when you have background noise. A lower value (e.g., -40 dB) is stricter and works for quiet environments, while a higher value (e.g., -20 dB) is more lenient for noisy recordings.
+</Note>
+
+## Podcast optimization
+
+Recommended settings for podcast transcription:
+
+```typescript
+import { init, transcribe } from 'tafrigh';
+
+init({ apiKeys: ['key1', 'key2', 'key3'] });
+
+const transcript = await transcribe('podcast-episode.mp3', {
+  concurrency: 3,
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 100, // Keep some bass for voice warmth
+      lowpass: 3500,
+      afftdnStart: 0,
+      afftdnStop: 1,
+      afftdn_nf: -15, // Light noise reduction
+      dialogueEnhance: true,
+    },
+  },
+  splitOptions: {
+    chunkDuration: 60,
+    chunkMinThreshold: 2,
+    silenceDetection: {
+      silenceThreshold: -35,
+      silenceDuration: 0.8, // Longer pauses between speakers
+    },
+  },
+});
+
+console.log(transcript);
+```
+
+<Tip>
+For music podcasts or content with intentional audio effects, use lighter noise reduction settings or disable it entirely to preserve audio quality.
+</Tip>

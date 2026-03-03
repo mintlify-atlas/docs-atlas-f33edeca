@@ -1,0 +1,178 @@
+---
+title: Audio processing
+description: Learn how Tafrigh splits and preprocesses audio files for optimal transcription
+---
+
+Tafrigh transforms your audio files through a two-stage pipeline before transcription: preprocessing and splitting. Understanding these stages helps you tune the configuration for accurate results.
+
+## Preprocessing workflow
+
+The preprocessing stage normalizes your audio file and applies optional noise reduction. This happens in the `formatMedia` function before any splitting occurs.
+
+```typescript
+const filePath = await formatMedia(
+    content,
+    path.format({
+        dir: outputDir,
+        ext: '.mp3',
+        name: Date.now().toString(),
+    }),
+    options?.preprocessOptions,
+    options?.callbacks,
+);
+```
+
+### Noise reduction filters
+
+By default, Tafrigh applies several audio filters to improve transcription accuracy:
+
+<AccordionGroup>
+  <Accordion title="High-pass filter (300 Hz)">
+    Removes low-frequency rumble and background noise below human speech range. Set `highpass: null` to disable.
+  </Accordion>
+  
+  <Accordion title="Low-pass filter (3000 Hz)">
+    Removes high-frequency hiss and noise above typical speech frequencies. Set `lowpass: null` to disable.
+  </Accordion>
+  
+  <Accordion title="FFT-based denoising">
+    Analyzes the first 0-1.5 seconds to learn the noise profile, then removes similar patterns throughout the file. The `afftdn_nf` parameter controls the noise floor threshold (default: -20 dB).
+  </Accordion>
+  
+  <Accordion title="Dialogue enhancement">
+    Boosts midrange frequencies (where human speech lives) to make voices clearer. Enabled by default; set `dialogueEnhance: false` to disable.
+  </Accordion>
+</AccordionGroup>
+
+### Customizing preprocessing
+
+You can tune or disable any filter:
+
+```typescript
+import { transcribe } from 'tafrigh';
+
+const transcript = await transcribe('audio.mp3', {
+  preprocessOptions: {
+    noiseReduction: {
+      highpass: 200,        // Lower cutoff for deeper voices
+      lowpass: 3500,        // Higher cutoff for clearer audio
+      afftdnStart: 0.5,     // Start learning noise at 0.5s
+      afftdnStop: 2,        // Stop learning at 2s
+      afftdn_nf: -25,       // More aggressive noise floor
+      dialogueEnhance: true // Keep dialogue enhancement
+    }
+  }
+});
+```
+
+<Tip>
+To skip noise reduction entirely, set `preprocessOptions: { noiseReduction: null }`. This is useful for studio-quality recordings.
+</Tip>
+
+## Audio splitting
+
+After preprocessing, Tafrigh splits the audio into chunks at natural silence points. This step is critical because:
+
+1. Wit.ai has duration limits for API requests
+2. Smaller chunks enable parallel processing across multiple API keys
+3. Splitting at silence prevents cutting words mid-pronunciation
+
+### Silence detection algorithm
+
+The `splitFileOnSilences` function (from `ffmpeg-simplified`) detects pauses using two parameters:
+
+```typescript
+const chunkFiles = await splitFileOnSilences(
+    filePath,
+    outputDir,
+    options?.splitOptions,
+    options?.callbacks
+);
+```
+
+**Key parameters:**
+
+- **`silenceThreshold`** (default: -25 dB): Volume level considered "silent". Lower values (e.g., -30 dB) detect softer pauses; higher values (e.g., -20 dB) only split on clear silence.
+- **`silenceDuration`** (default: 0.1s): Minimum pause length to trigger a split. Increase for speakers with longer natural pauses.
+
+### Chunk boundaries
+
+Each chunk respects these constraints:
+
+- **Maximum duration**: `chunkDuration` (default: 60 seconds)
+- **Minimum duration**: `chunkMinThreshold` (default: 0.9 seconds)
+
+If Tafrigh detects a chunk below the minimum threshold, it's filtered out to avoid processing silence-only segments.
+
+<Note>
+Chunks may be *shorter* than `chunkDuration` if splitting at the exact boundary would cut a word. Tafrigh always prefers the last valid silence point.
+</Note>
+
+### Example: Adjusting for podcasts
+
+Podcasts often have background music and shorter pauses. Here's a tuned configuration:
+
+```typescript
+const transcript = await transcribe('podcast.mp3', {
+  splitOptions: {
+    chunkDuration: 90,           // Longer chunks for continuity
+    chunkMinThreshold: 2,        // Filter out brief gaps
+    silenceDetection: {
+      silenceThreshold: -30,     // Detect quieter pauses
+      silenceDuration: 0.3       // Require 300ms of silence
+    }
+  }
+});
+```
+
+## Tracking progress
+
+You can monitor both stages with callbacks:
+
+```typescript
+const transcript = await transcribe('audio.mp3', {
+  callbacks: {
+    // Preprocessing callbacks
+    onPreprocessingStarted: async (filePath) => {
+      console.log(`Starting preprocessing: ${filePath}`);
+    },
+    onPreprocessingProgress: (percent) => {
+      console.log(`Preprocessing: ${percent}% complete`);
+    },
+    onPreprocessingFinished: async (filePath) => {
+      console.log(`Preprocessed file ready: ${filePath}`);
+    },
+    
+    // Splitting callbacks
+    onSplittingStarted: async (totalChunks) => {
+      console.log(`Splitting into ${totalChunks} chunks`);
+    },
+    onSplittingProgress: (chunkFilePath, chunkIndex) => {
+      console.log(`Created chunk ${chunkIndex}: ${chunkFilePath}`);
+    },
+    onSplittingFinished: async () => {
+      console.log('All chunks ready for transcription');
+    }
+  }
+});
+```
+
+## Chunk metadata
+
+Each chunk includes timing information for accurate segment alignment:
+
+```typescript
+type AudioChunk = {
+  filename: string;      // Path to the chunk file
+  range: {
+    start: number;       // Start time in original audio (seconds)
+    end: number;         // End time in original audio (seconds)
+  };
+};
+```
+
+When Tafrigh transcribes a chunk, it uses the `range` to offset timestamps back to the original file (see `mapWitResponseToSegment` in `/home/daytona/workspace/source/src/utils/mapping.ts:16-34`).
+
+<Info>
+All temporary files (preprocessed audio and chunks) are stored in a system temp directory and cleaned up automatically unless you set `preventCleanup: true`.
+</Info>

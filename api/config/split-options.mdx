@@ -1,0 +1,170 @@
+---
+title: Split options
+description: Configure how audio files are split into chunks for transcription
+---
+
+`SplitOptions` controls how Tafrigh splits your audio files into manageable chunks. This is crucial for working with services like Wit.ai that impose duration limits. The splitting strategy uses silence detection to avoid cutting through words, which would reduce transcription accuracy.
+
+## Why splitting matters
+
+Splitting audio files into chunks serves several purposes:
+
+- **API compatibility**: Services like Wit.ai have maximum duration limits per request
+- **Parallel processing**: Multiple chunks can be transcribed concurrently using different API keys
+- **Quality preservation**: Splitting on silence prevents cutting through words
+- **Timestamp granularity**: Chunk duration affects the detail level of your timestamps
+
+## Configuration
+
+You pass `splitOptions` to the `transcribe()` function:
+
+```typescript
+import { transcribe } from 'tafrigh';
+
+const transcript = await transcribe('audio.mp3', {
+  splitOptions: {
+    chunkDuration: 60,
+    chunkMinThreshold: 4,
+    silenceDetection: {
+      silenceThreshold: -30,
+      silenceDuration: 0.5,
+    },
+  },
+});
+```
+
+## Properties
+
+<ParamField path="chunkDuration" type="number" default="60">
+  Maximum length of each audio chunk in seconds.
+  
+  The actual chunk length may be shorter if splitting at the maximum duration would cut through speech. Tafrigh automatically finds the last silence before the duration limit to ensure clean splits.
+  
+  <Note>
+    Must be between 4 and 300 seconds. This value also affects timestamp granularity—longer chunks mean less detailed timestamps.
+  </Note>
+</ParamField>
+
+<ParamField path="chunkMinThreshold" type="number" default="0.9">
+  Minimum length of each chunk in seconds.
+  
+  Chunks shorter than this threshold are automatically filtered out. This prevents creating tiny, unusable chunks from brief audio artifacts.
+</ParamField>
+
+<ParamField path="silenceDetection" type="object">
+  Configuration for detecting silence in the audio to determine optimal split points.
+  
+  <Expandable title="properties">
+    <ParamField path="silenceThreshold" type="number" default="-25">
+      The volume level in dB considered as silence.
+      
+      Lower values (more negative) mean quieter sounds are required for silence detection. Adjust this based on your audio's background noise:
+      
+      - Clean studio recordings: `-40` to `-30` dB
+      - Typical recordings: `-30` to `-20` dB  
+      - Noisy recordings: `-20` to `-15` dB
+    </ParamField>
+    
+    <ParamField path="silenceDuration" type="number" default="0.1">
+      Minimum duration of silence in seconds required to trigger a split.
+      
+      Longer pauses between sentences or thoughts should use higher values:
+      
+      - Fast speech, brief pauses: `0.1` to `0.3` seconds
+      - Normal conversational pace: `0.3` to `0.5` seconds
+      - Deliberate pauses, lectures: `0.5` to `1.0` seconds
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Examples
+
+### Fast-paced podcast
+
+For rapid conversation with minimal pauses:
+
+```typescript
+const transcript = await transcribe('podcast.mp3', {
+  splitOptions: {
+    chunkDuration: 45,
+    chunkMinThreshold: 2,
+    silenceDetection: {
+      silenceThreshold: -25,
+      silenceDuration: 0.2,
+    },
+  },
+});
+```
+
+### Lecture with long pauses
+
+For educational content with deliberate pauses:
+
+```typescript
+const transcript = await transcribe('lecture.mp3', {
+  splitOptions: {
+    chunkDuration: 90,
+    chunkMinThreshold: 5,
+    silenceDetection: {
+      silenceThreshold: -30,
+      silenceDuration: 0.8,
+    },
+  },
+});
+```
+
+### Noisy environment recording
+
+For audio with significant background noise:
+
+```typescript
+const transcript = await transcribe('interview.mp3', {
+  splitOptions: {
+    chunkDuration: 60,
+    chunkMinThreshold: 3,
+    silenceDetection: {
+      silenceThreshold: -20, // Less sensitive to noise
+      silenceDuration: 0.4,
+    },
+  },
+});
+```
+
+### Maximum duration chunks
+
+For the longest allowed chunks (better for slower processing or API limits):
+
+```typescript
+import { transcribe, MAX_CHUNK_DURATION } from 'tafrigh';
+
+const transcript = await transcribe('long-file.mp3', {
+  splitOptions: {
+    chunkDuration: MAX_CHUNK_DURATION, // 300 seconds
+  },
+});
+```
+
+## How chunks are processed
+
+After splitting, each chunk undergoes additional processing:
+
+1. **Padding**: Silent padding is added to chunk boundaries
+2. **Normalization**: Volume levels are normalized for consistency
+3. **Filtering**: Chunks below `chunkMinThreshold` are removed
+
+This ensures optimal transcription quality even at split boundaries.
+
+<Warning>
+  If you split in the middle of a word, transcription accuracy will suffer. Spend time tuning `silenceDetection` parameters for your specific audio content.
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Preprocess options" icon="waveform-lines" href="/api/config/preprocess-options">
+    Configure noise reduction and audio preprocessing
+  </Card>
+  <Card title="Transcribe function" icon="microphone" href="/api/transcribe">
+    Main transcription function reference
+  </Card>
+</CardGroup>

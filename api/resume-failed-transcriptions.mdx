@@ -1,0 +1,278 @@
+---
+title: resumeFailedTranscriptions()
+description: Retry failed transcription chunks and merge with successful results
+---
+
+## Function signature
+
+```typescript
+async function resumeFailedTranscriptions(
+  error: Pick<TranscriptionError, 'failures' | 'transcripts'>,
+  options?: {
+    callbacks?: Callbacks;
+    concurrency?: number;
+    retries?: number;
+  }
+): Promise<{
+  failures: FailedTranscription[];
+  transcripts: Segment[];
+}>
+```
+
+Retries failed transcription chunks from a previous [`transcribe()`](/api/transcribe) operation and merges the results with previously successful transcriptions.
+
+This function is useful when some chunks fail due to network issues, rate limiting, or temporary API errors. It allows you to resume transcription without re-processing successfully transcribed chunks.
+
+## Parameters
+
+<ParamField path="error" type="Pick<TranscriptionError, 'failures' | 'transcripts'>" required>
+  The error object from a failed `transcribe()` call, or an object containing the failure information.
+
+  <Expandable title="properties">
+    <ParamField path="failures" type="FailedTranscription[]" required>
+      Array of failed transcription attempts. Each failure contains:
+      - `chunk`: The audio chunk that failed to transcribe (with `filename` and `range` properties)
+      - `error`: The error that occurred during transcription
+      - `index`: The original index of the chunk in the sequence
+    </ParamField>
+
+    <ParamField path="transcripts" type="Segment[]" required>
+      Array of successfully transcribed segments from the original transcription attempt.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="options" type="object">
+  Configuration options for the retry operation
+
+  <Expandable title="properties">
+    <ParamField path="concurrency" type="number" default="1">
+      Maximum number of concurrent transcription operations for retrying. Limited by the number of available API keys provided to [`init()`](/api/init).
+    </ParamField>
+
+    <ParamField path="retries" type="number" default="3">
+      Number of retry attempts for each failed chunk. Uses exponential backoff between retries.
+    </ParamField>
+
+    <ParamField path="callbacks" type="Callbacks">
+      Callbacks for monitoring progress during the retry operation.
+
+      <Expandable title="properties">
+        <ParamField path="onTranscriptionStarted" type="(totalChunks: number) => Promise<void>">
+          Called before retry begins, with the total number of failed chunks to retry.
+        </ParamField>
+
+        <ParamField path="onTranscriptionProgress" type="(chunkIndex: number) => void">
+          Called when each chunk retry completes.
+        </ParamField>
+
+        <ParamField path="onTranscriptionFinished" type="(transcripts: Segment[]) => Promise<void>">
+          Called when all retries are complete, with the combined array of all transcribed segments.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Returns
+
+<ResponseField name="result" type="Promise<{ failures: FailedTranscription[]; transcripts: Segment[]; }>">
+  A promise that resolves to an object containing:
+
+  <Expandable title="properties">
+    <ResponseField name="failures" type="FailedTranscription[]">
+      Array of chunks that still failed after retry. If this array is empty, all chunks were successfully transcribed.
+    </ResponseField>
+
+    <ResponseField name="transcripts" type="Segment[]">
+      Combined array of all successfully transcribed segments, including both:
+      - Original successful transcriptions from the first attempt
+      - Newly successful transcriptions from the retry
+      
+      The array is automatically sorted by start time to maintain chronological order.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+### Basic retry after failure
+
+```typescript
+import { init, transcribe, resumeFailedTranscriptions, TranscriptionError } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+try {
+  const transcript = await transcribe('large-audio.mp3', {
+    preventCleanup: true // Keep chunks for retry
+  });
+  console.log('Success:', transcript);
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    console.log(`${error.failures.length} chunks failed`);
+    console.log(`${error.transcripts.length} chunks succeeded`);
+    
+    // Retry the failed chunks
+    const result = await resumeFailedTranscriptions(error);
+    
+    if (result.failures.length === 0) {
+      console.log('All chunks transcribed successfully!');
+      console.log(result.transcripts);
+    } else {
+      console.log(`${result.failures.length} chunks still failing`);
+    }
+  }
+}
+```
+
+### Retry with concurrency
+
+```typescript
+import { init, transcribe, resumeFailedTranscriptions, TranscriptionError } from 'tafrigh';
+
+init({
+  apiKeys: ['key-1', 'key-2', 'key-3']
+});
+
+try {
+  const transcript = await transcribe('audio.mp3', {
+    concurrency: 3,
+    preventCleanup: true
+  });
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    // Retry failed chunks with multiple keys
+    const result = await resumeFailedTranscriptions(error, {
+      concurrency: 3,
+      retries: 5
+    });
+    
+    console.log(`Final results: ${result.transcripts.length} segments`);
+    console.log(`Still failing: ${result.failures.length} chunks`);
+  }
+}
+```
+
+### Multiple retry attempts
+
+```typescript
+import { init, transcribe, resumeFailedTranscriptions, TranscriptionError } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+let result;
+
+try {
+  result = await transcribe('audio.mp3', { preventCleanup: true });
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    result = error;
+  } else {
+    throw error;
+  }
+}
+
+// Keep retrying until all chunks succeed or max attempts reached
+let attempt = 1;
+const maxAttempts = 3;
+
+while (result.failures && result.failures.length > 0 && attempt <= maxAttempts) {
+  console.log(`Retry attempt ${attempt}: ${result.failures.length} chunks remaining`);
+  
+  // Wait before retrying (exponential backoff)
+  await new Promise(resolve => setTimeout(resolve, attempt * 2000));
+  
+  result = await resumeFailedTranscriptions(result, {
+    retries: 3
+  });
+  
+  attempt++;
+}
+
+if (result.failures.length === 0) {
+  console.log('All chunks transcribed successfully!');
+  console.log(result.transcripts);
+} else {
+  console.error(`Failed to transcribe ${result.failures.length} chunks after ${maxAttempts} attempts`);
+}
+```
+
+### Progress tracking during retry
+
+```typescript
+import { init, transcribe, resumeFailedTranscriptions, TranscriptionError } from 'tafrigh';
+
+init({ apiKeys: ['your-wit-ai-key'] });
+
+try {
+  await transcribe('audio.mp3', { preventCleanup: true });
+} catch (error) {
+  if (error instanceof TranscriptionError) {
+    let retryProgress = 0;
+    
+    const result = await resumeFailedTranscriptions(error, {
+      callbacks: {
+        onTranscriptionStarted: async (total) => {
+          console.log(`Retrying ${total} failed chunks...`);
+        },
+        onTranscriptionProgress: (index) => {
+          retryProgress++;
+          console.log(`Retry progress: ${retryProgress}/${error.failures.length}`);
+        },
+        onTranscriptionFinished: async (transcripts) => {
+          console.log(`Retry complete! Total segments: ${transcripts.length}`);
+        }
+      }
+    });
+    
+    console.log(`Final result: ${result.transcripts.length} segments`);
+  }
+}
+```
+
+### Manual construction for custom workflows
+
+```typescript
+import { resumeFailedTranscriptions } from 'tafrigh';
+
+// You can manually construct the error object if you've saved
+// the failure information from a previous session
+const savedFailures = [
+  {
+    chunk: { filename: 'chunk-005.wav', range: { start: 40, end: 50 } },
+    error: new Error('Rate limited'),
+    index: 5
+  }
+];
+
+const savedTranscripts = [
+  { text: 'Hello world', start: 0, end: 10, confidence: 0.98 },
+  { text: 'This is a test', start: 10, end: 20, confidence: 0.95 }
+];
+
+const result = await resumeFailedTranscriptions(
+  {
+    failures: savedFailures,
+    transcripts: savedTranscripts
+  },
+  {
+    concurrency: 1
+  }
+);
+
+console.log(result.transcripts);
+// All segments sorted by start time, including newly transcribed chunk
+```
+
+<Note>
+  When using `resumeFailedTranscriptions()`, make sure you set `preventCleanup: true` in the original `transcribe()` call. Otherwise, the temporary audio chunk files will be deleted and cannot be retried.
+</Note>
+
+<Note>
+  The returned `transcripts` array is automatically sorted by start time, ensuring chronological order regardless of the order in which chunks were retried.
+</Note>
+
+<Note>
+  If all retries succeed (`failures.length === 0`), the `onTranscriptionFinished` callback will be invoked with the complete transcript.
+</Note>
