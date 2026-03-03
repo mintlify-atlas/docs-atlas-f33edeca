@@ -70,7 +70,8 @@
             "pages": [
               "api/init",
               "api/transcribe",
-              "api/resume-failed-transcriptions"
+              "api/resume-failed-transcriptions",
+              "api/constants"
             ]
           },
           {

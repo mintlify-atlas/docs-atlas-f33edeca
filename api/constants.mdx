@@ -1,0 +1,87 @@
+---
+title: Constants
+description: Exported constants for configuration limits
+---
+
+Tafrigh exports several constants that define limits and boundaries for audio processing. These constants are useful when you need to reference the maximum or minimum values supported by the library.
+
+## Available constants
+
+<ResponseField name="MAX_CHUNK_DURATION" type="number">
+  Maximum chunk duration in seconds (300 seconds / 5 minutes). This is the maximum duration supported by Wit.ai's API.
+  
+  ```typescript
+  export const MAX_CHUNK_DURATION = 60 * 5; // 300 seconds
+  ```
+</ResponseField>
+
+<ResponseField name="MIN_CHUNK_DURATION" type="number">
+  Minimum chunk duration in seconds (4 seconds). Chunks shorter than this are filtered out during splitting.
+  
+  ```typescript
+  export const MIN_CHUNK_DURATION = 4; // 4 seconds
+  ```
+</ResponseField>
+
+<ResponseField name="MIN_CONCURRENCY" type="number">
+  Minimum concurrency level (1). This is the minimum number of concurrent transcription operations.
+  
+  ```typescript
+  export const MIN_CONCURRENCY = 1;
+  ```
+</ResponseField>
+
+## Usage
+
+Import these constants when you need to reference the limits:
+
+```typescript
+import { transcribe, MAX_CHUNK_DURATION, MIN_CHUNK_DURATION } from 'tafrigh';
+
+// Use maximum chunk duration
+const result = await transcribe('audio.mp3', {
+  splitOptions: {
+    chunkDuration: MAX_CHUNK_DURATION, // 300 seconds
+  }
+});
+
+// Validate custom chunk duration
+const customDuration = 120;
+if (customDuration < MIN_CHUNK_DURATION) {
+  console.warn(`Chunk duration too short (minimum: ${MIN_CHUNK_DURATION}s)`);
+}
+```
+
+## When to use these constants
+
+<Card title="Maximum processing time" icon="clock">
+  Use `MAX_CHUNK_DURATION` when you want to process the largest chunks possible to minimize API calls and maximize parallel processing efficiency.
+</Card>
+
+<Card title="Validation" icon="circle-check">
+  Use `MIN_CHUNK_DURATION` to validate user-provided chunk durations and ensure they meet the minimum requirement.
+</Card>
+
+<Card title="Concurrency limits" icon="gauge-high">
+  Use `MIN_CONCURRENCY` as a reference when implementing custom concurrency logic.
+</Card>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Split options" icon="scissors" href="/api/config/split-options">
+    Configure audio splitting behavior
+  </Card>
+  
+  <Card title="Concurrency guide" icon="gauge-high" href="/guides/concurrency">
+    Learn about parallel processing
+  </Card>
+  
+  <Card title="Advanced configuration" icon="sliders" href="/guides/advanced-configuration">
+    Optimize chunk duration for your use case
+  </Card>
+  
+  <Card title="transcribe function" icon="microphone" href="/api/transcribe">
+    Main transcription function
+  </Card>
+</CardGroup>
