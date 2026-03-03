@@ -1,0 +1,106 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Tafrigh",
+  "projectDescription": "A NodeJS library for transcribing audio and video files to text using Wit.ai.",
+  "theme": "palm",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#60A5FA",
+  "darkColor": "#2563EB",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/audio-processing",
+              "concepts/transcription-pipeline",
+              "concepts/api-keys",
+              "concepts/error-handling"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/basic-usage",
+              "guides/advanced-configuration",
+              "guides/noise-reduction",
+              "guides/concurrency",
+              "guides/resuming-failed-transcriptions",
+              "guides/logging"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/simple-transcription",
+              "examples/streaming-audio",
+              "examples/custom-preprocessing",
+              "examples/progress-callbacks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Functions",
+            "pages": [
+              "api/init",
+              "api/transcribe",
+              "api/resume-failed-transcriptions"
+            ]
+          },
+          {
+            "group": "Types",
+            "pages": [
+              "api/types/transcribe-options",
+              "api/types/segment",
+              "api/types/callbacks",
+              "api/types/errors"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "api/config/split-options",
+              "api/config/preprocess-options",
+              "api/config/noise-reduction"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Audio splitting with silence detection",
+    "Noise reduction and dialogue enhancement",
+    "Multiple API key rotation for rate limiting",
+    "Smart concurrency control",
+    "Automatic retry with exponential backoff",
+    "Resume failed transcriptions",
+    "Rich error reporting with partial progress",
+    "Flexible logging control"
+  ],
+  "publicApiSurface": [
+    "init(options: { apiKeys: string[], logger?: Logger })",
+    "transcribe(content: string | Readable, options?: TranscribeOptions): Promise<Segment[]>",
+    "resumeFailedTranscriptions(error: TranscriptionError, options?: ResumeOptions): Promise<TranscribeAudioChunksResult>",
+    "TranscriptionError",
+    "Segment",
+    "Token",
+    "TranscribeOptions",
+    "Callbacks",
+    "Logger"
+  ]
+}
